@@ -113,6 +113,15 @@ struct WelcomeView: View {
                                     }
                                     .buttonStyle(.plain)
                                     .help("配置")
+
+                                    Button(action: { viewModel.showDoctor = true }) {
+                                        Image(systemName: "stethoscope")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.white.opacity(0.4))
+                                            .frame(width: 24, height: 24)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Doctor 诊断")
                                 }
                             }
 
@@ -268,6 +277,10 @@ struct WelcomeView: View {
                     viewModel.showConfigEditor = false
                 }
             }
+        }
+        .sheet(isPresented: $viewModel.showDoctor) {
+            DoctorView()
+                .environmentObject(viewModel)
         }
     }
 }

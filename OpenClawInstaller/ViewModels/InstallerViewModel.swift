@@ -64,6 +64,173 @@ struct ExistingInstall {
     let hasWorkspace: Bool
 }
 
+// MARK: - Doctor Report
+
+struct DoctorReportItem: Identifiable {
+    let id = UUID()
+    let icon: String
+    let text: String
+    let category: DoctorReportCategory
+}
+
+enum DoctorReportCategory {
+    case passed, warning, error, info
+}
+
+/// A section parsed from clack-style doctor output (◇ header + │ body lines).
+struct DoctorSection {
+    let title: String
+    let bodyLines: [String]
+}
+
+struct DoctorReport {
+    let sections: [DoctorSection]
+    let passed: [DoctorReportItem]
+    let warnings: [DoctorReportItem]
+    let errors: [DoctorReportItem]
+    let infos: [DoctorReportItem]
+
+    var totalChecks: Int { passed.count + warnings.count + errors.count }
+    var isHealthy: Bool { errors.isEmpty && warnings.isEmpty }
+
+    private static let ansiPattern = try! NSRegularExpression(pattern: "\\x1B\\[[0-9;]*[A-Za-z]|\\[\\?25[lh]\\]")
+
+    private static func stripAnsi(_ raw: String) -> String {
+        let range = NSRange(raw.startIndex..., in: raw)
+        return ansiPattern.stringByReplacingMatches(in: raw, range: range, withTemplate: "")
+    }
+
+    /// Parse raw `openclaw doctor` output lines into a structured report.
+    /// The output uses clack UI format:
+    ///   ◇ Section Title          — section header
+    ///   │  content line           — body within a section
+    ///   ├  ...                    — continuation
+    ///   └  ...                    — section end
+    ///   ◆  prompt?                — interactive prompt
+    ///   - item                    — list bullet inside │ blocks
+    static func parse(lines: [String]) -> DoctorReport {
+        // 1. Split into sections by ◇/◆ headers
+        var sections = [DoctorSection]()
+        var currentTitle = ""
+        var currentBody = [String]()
+
+        for raw in lines {
+            let line = stripAnsi(raw).trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
+
+            // New section header: ◇ or ◆
+            if line.hasPrefix("◇") || line.hasPrefix("◆") || line.hasPrefix("◈") {
+                // Save previous section
+                if !currentTitle.isEmpty || !currentBody.isEmpty {
+                    sections.append(DoctorSection(title: currentTitle, bodyLines: currentBody))
+                }
+                currentTitle = line
+                    .replacingOccurrences(of: "◇", with: "")
+                    .replacingOccurrences(of: "◆", with: "")
+                    .replacingOccurrences(of: "◈", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                currentBody = []
+                continue
+            }
+
+            // Body lines: strip leading │├└┌ and whitespace
+            if line.hasPrefix("│") || line.hasPrefix("├") || line.hasPrefix("└") || line.hasPrefix("┌") {
+                let content = String(line.drop(while: { "│├└┌ ".contains($0) }))
+                    .trimmingCharacters(in: .whitespaces)
+                if !content.isEmpty {
+                    currentBody.append(content)
+                }
+                continue
+            }
+
+            // Other lines (no box-drawing prefix) — treat as body of current section
+            if line.count > 2 {
+                currentBody.append(line)
+            }
+        }
+        // Save last section
+        if !currentTitle.isEmpty || !currentBody.isEmpty {
+            sections.append(DoctorSection(title: currentTitle, bodyLines: currentBody))
+        }
+
+        // 2. Classify sections into categories
+        var passed = [DoctorReportItem]()
+        var warnings = [DoctorReportItem]()
+        var errors = [DoctorReportItem]()
+        var infos = [DoctorReportItem]()
+
+        for section in sections {
+            let titleLower = section.title.lowercased()
+            let bodyText = section.bodyLines.joined(separator: "\n")
+
+            // Determine section category by title keywords
+            if titleLower.contains("error") || titleLower.contains("critical") || titleLower.contains("fail") {
+                let item = DoctorReportItem(
+                    icon: "xmark.circle.fill",
+                    text: section.title + (bodyText.isEmpty ? "" : "\n" + bodyText),
+                    category: .error
+                )
+                errors.append(item)
+            } else if titleLower.contains("warn") {
+                let item = DoctorReportItem(
+                    icon: "exclamationmark.triangle.fill",
+                    text: section.title + (bodyText.isEmpty ? "" : "\n" + bodyText),
+                    category: .warning
+                )
+                warnings.append(item)
+            } else if titleLower.contains("✓") || titleLower.contains("pass") || titleLower.contains("ok") || titleLower.contains("success") {
+                let item = DoctorReportItem(
+                    icon: "checkmark.circle.fill",
+                    text: section.title,
+                    category: .passed
+                )
+                passed.append(item)
+            } else if !section.title.isEmpty {
+                // Check body for clues
+                let bodyLower = bodyText.lowercased()
+                if bodyLower.contains("error") || bodyLower.contains("fail") || bodyLower.contains("not found") || bodyLower.contains("missing") {
+                    errors.append(DoctorReportItem(
+                        icon: "xmark.circle.fill",
+                        text: section.title + (bodyText.isEmpty ? "" : "\n" + bodyText),
+                        category: .error
+                    ))
+                } else if bodyLower.contains("warn") || bodyLower.contains("first-time setup") || bodyLower.contains("blocked") {
+                    warnings.append(DoctorReportItem(
+                        icon: "exclamationmark.triangle.fill",
+                        text: section.title + (bodyText.isEmpty ? "" : "\n" + bodyText),
+                        category: .warning
+                    ))
+                } else {
+                    infos.append(DoctorReportItem(
+                        icon: "info.circle",
+                        text: section.title + (bodyText.isEmpty ? "" : "\n" + bodyText),
+                        category: .info
+                    ))
+                }
+            }
+        }
+
+        // If nothing was classified as passed/warning/error, extract per-line items from body
+        if passed.isEmpty && warnings.isEmpty && errors.isEmpty && !infos.isEmpty {
+            // Re-scan all body lines for ✓/✗ markers that might appear inline
+            var rePassed = [DoctorReportItem]()
+            for section in sections {
+                for bodyLine in section.bodyLines {
+                    let lower = bodyLine.lowercased()
+                    if bodyLine.contains("✓") || bodyLine.contains("✔") {
+                        rePassed.append(DoctorReportItem(icon: "checkmark.circle.fill", text: bodyLine, category: .passed))
+                    } else if bodyLine.contains("✗") || bodyLine.contains("✘") || lower.contains("error") {
+                        errors.append(DoctorReportItem(icon: "xmark.circle.fill", text: bodyLine, category: .error))
+                    }
+                }
+            }
+            if !rePassed.isEmpty { passed = rePassed }
+        }
+
+        return DoctorReport(sections: sections, passed: passed, warnings: warnings, errors: errors, infos: infos)
+    }
+}
+
 // MARK: - NPM Mirror
 
 struct NpmMirror: Identifiable, Hashable {
@@ -777,6 +944,9 @@ class InstallerViewModel: ObservableObject {
     @Published var doctorFixOutput: [String] = []
     @Published var doctorFixExitCode: Int32 = 0
     @Published var doctorFixDone = false
+    @Published var doctorReport: DoctorReport?
+    private var doctorHandle: StreamingHandle?
+    private var doctorFixHandle: StreamingHandle?
 
     let shell: ShellExecuting
 
@@ -2033,9 +2203,15 @@ class InstallerViewModel: ObservableObject {
         doctorFixDone = false
         doctorFixOutput = []
         doctorRunning = true
+        doctorReport = nil
+
+        let handle = StreamingHandle()
+        doctorHandle = handle
+        let collector = LineCollector()
 
         Task {
-            let exitCode = await shell.runStreaming("openclaw doctor 2>&1") { [weak self] chunk in
+            let exitCode = await shell.runStreamingCancellable("yes n | openclaw doctor --non-interactive 2>&1", handle: handle) { [weak self] chunk in
+                collector.append(chunk: chunk)
                 Task { @MainActor in
                     let lines = chunk.components(separatedBy: .newlines)
                     for line in lines where !line.isEmpty {
@@ -2045,6 +2221,8 @@ class InstallerViewModel: ObservableObject {
             }
             doctorExitCode = exitCode
             doctorRunning = false
+            doctorHandle = nil
+            doctorReport = DoctorReport.parse(lines: collector.lines)
         }
     }
 
@@ -2054,8 +2232,11 @@ class InstallerViewModel: ObservableObject {
         doctorFixDone = false
         doctorFixRunning = true
 
+        let handle = StreamingHandle()
+        doctorFixHandle = handle
+
         Task {
-            let exitCode = await shell.runStreaming("openclaw doctor --fix --non-interactive 2>&1") { [weak self] chunk in
+            let exitCode = await shell.runStreamingCancellable("yes n | openclaw doctor --fix --non-interactive 2>&1", handle: handle) { [weak self] chunk in
                 Task { @MainActor in
                     let lines = chunk.components(separatedBy: .newlines)
                     for line in lines where !line.isEmpty {
@@ -2066,6 +2247,22 @@ class InstallerViewModel: ObservableObject {
             doctorFixExitCode = exitCode
             doctorFixRunning = false
             doctorFixDone = true
+            doctorFixHandle = nil
+        }
+    }
+
+    func cancelDoctor() {
+        doctorHandle?.cancel()
+        doctorFixHandle?.cancel()
+        doctorHandle = nil
+        doctorFixHandle = nil
+        if doctorRunning {
+            doctorOutput.append("[诊断已取消]")
+            doctorRunning = false
+        }
+        if doctorFixRunning {
+            doctorFixOutput.append("[修复已取消]")
+            doctorFixRunning = false
         }
     }
 }

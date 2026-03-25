@@ -44,6 +44,37 @@ struct ContentView: View {
                     removal: .move(edge: .leading).combined(with: .opacity)
                 ))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                // Footer: version & repo link
+                HStack {
+                    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+                    let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+                    Text("v\(version) (\(build))")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.35))
+
+                    Spacer()
+
+                    Link(destination: URL(string: "https://github.com/loverbabyz/OpenClawInstaller")!) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "link")
+                                .font(.system(size: 10))
+                            Text("GitHub")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.white.opacity(0.35))
+                    }
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 10)
+                .padding(.top, 4)
             }
         }
         .navigationTitle("OpenClaw Installer")

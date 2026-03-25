@@ -57,6 +57,10 @@ final class MockShellExecutor: ShellExecuting, @unchecked Sendable {
         return 0
     }
 
+    func runStreamingCancellable(_ command: String, handle: StreamingHandle, onOutput: @escaping @Sendable (String) -> Void) async -> Int32 {
+        return await runStreaming(command, onOutput: onOutput)
+    }
+
     func commandExists(_ command: String) async -> Bool {
         let result = await run("which \(command)", environment: nil)
         return result.exitCode == 0

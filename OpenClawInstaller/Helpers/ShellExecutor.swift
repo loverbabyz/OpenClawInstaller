@@ -6,9 +6,50 @@ struct ShellResult {
     let exitCode: Int32
 }
 
+/// Thread-safe collector for output lines produced by streaming callbacks.
+/// Lines are collected synchronously in the callback so they are available
+/// immediately after the process exits (unlike MainActor-dispatched appends).
+final class LineCollector: @unchecked Sendable {
+    private var _lines: [String] = []
+    private let lock = NSLock()
+
+    func append(chunk: String) {
+        let newLines = chunk.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        lock.lock()
+        _lines.append(contentsOf: newLines)
+        lock.unlock()
+    }
+
+    var lines: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _lines
+    }
+}
+
+/// Handle returned by cancellable streaming execution; call `cancel()` to terminate the process.
+final class StreamingHandle: @unchecked Sendable {
+    private var process: Process?
+    private let lock = NSLock()
+
+    func attach(_ process: Process) {
+        lock.lock()
+        self.process = process
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        let p = process
+        lock.unlock()
+        if let p, p.isRunning { p.terminate() }
+    }
+}
+
 protocol ShellExecuting: Sendable {
     func run(_ command: String, environment: [String: String]?) async -> ShellResult
     func runStreaming(_ command: String, onOutput: @escaping @Sendable (String) -> Void) async -> Int32
+    func runStreamingCancellable(_ command: String, handle: StreamingHandle, onOutput: @escaping @Sendable (String) -> Void) async -> Int32
     func commandExists(_ command: String) async -> Bool
     func getCommandVersion(_ command: String, versionFlag: String) async -> String?
 }
@@ -93,6 +134,7 @@ final class ShellExecutor: ShellExecuting, @unchecked Sendable {
                 process.arguments = ["-l", "-c", command]
                 process.standardOutput = outputPipe
                 process.standardError = errorPipe
+                process.standardInput = FileHandle.nullDevice
 
                 var env = shellEnv
                 if let extra = environment {
@@ -136,7 +178,54 @@ final class ShellExecutor: ShellExecuting, @unchecked Sendable {
                 process.arguments = ["-l", "-c", command]
                 process.standardOutput = outputPipe
                 process.standardError = errorPipe
+                process.standardInput = FileHandle.nullDevice
                 process.environment = shellEnv
+
+                outputPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                        onOutput(str)
+                    }
+                }
+
+                errorPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                        onOutput(str)
+                    }
+                }
+
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+
+                    outputPipe.fileHandleForReading.readabilityHandler = nil
+                    errorPipe.fileHandleForReading.readabilityHandler = nil
+
+                    continuation.resume(returning: process.terminationStatus)
+                } catch {
+                    onOutput("Error: \(error.localizedDescription)")
+                    continuation.resume(returning: -1)
+                }
+            }
+        }
+    }
+
+    func runStreamingCancellable(_ command: String, handle: StreamingHandle, onOutput: @escaping @Sendable (String) -> Void) async -> Int32 {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { [shellEnv] in
+                let process = Process()
+                let outputPipe = Pipe()
+                let errorPipe = Pipe()
+
+                process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+                process.arguments = ["-l", "-c", command]
+                process.standardOutput = outputPipe
+                process.standardError = errorPipe
+                process.standardInput = FileHandle.nullDevice
+                process.environment = shellEnv
+
+                handle.attach(process)
 
                 outputPipe.fileHandleForReading.readabilityHandler = { handle in
                     let data = handle.availableData
