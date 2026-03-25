@@ -18,7 +18,7 @@ struct OpenClawInstallerApp: App {
                 .frame(width: 680, height: 720)
                 .preferredColorScheme(.dark)
         }
-        .windowStyle(.hiddenTitleBar)
+        .windowStyle(.titleBar)
         .windowResizability(.contentSize)
     }
 }

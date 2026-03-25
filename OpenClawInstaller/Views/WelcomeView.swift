@@ -11,30 +11,26 @@ struct WelcomeView: View {
                 VStack(spacing: 24) {
                     Spacer(minLength: 20)
 
-                    // Logo
+                    // Logo - App Icon
                     ZStack {
                         Circle()
                             .fill(
                                 RadialGradient(
                                     colors: [Color.accentColor.opacity(0.3), Color.clear],
                                     center: .center,
-                                    startRadius: 20,
-                                    endRadius: 80
+                                    startRadius: 30,
+                                    endRadius: 90
                                 )
                             )
                             .frame(width: 160, height: 160)
                             .scaleEffect(animate ? 1.1 : 1.0)
                             .animation(.easeInOut(duration: 2).repeatForever(autoreverses: true), value: animate)
 
-                        Image(systemName: "terminal.fill")
-                            .font(.system(size: 56))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [Color.accentColor, Color(red: 0.4, green: 0.8, blue: 0.6)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+                        Image(nsImage: NSApp.applicationIconImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 140, height: 140)
+                            .clipShape(RoundedRectangle(cornerRadius: 30))
                     }
 
                     VStack(spacing: 10) {

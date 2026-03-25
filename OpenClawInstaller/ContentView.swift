@@ -17,9 +17,6 @@ struct ContentView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Custom title bar
-                titleBar
-
                 // Step indicator
                 StepIndicatorView(currentStep: viewModel.currentStep)
                     .padding(.horizontal, 32)
@@ -49,23 +46,12 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .navigationTitle("OpenClaw Installer")
         .task {
             await viewModel.detectSystem()
         }
     }
 
-    private var titleBar: some View {
-        HStack {
-            // Window controls area (system provides these)
-            Spacer()
-            Text("OpenClaw Installer")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.6))
-            Spacer()
-        }
-        .frame(height: 38)
-        .background(Color.white.opacity(0.03))
-    }
 }
 
 struct StepIndicatorView: View {

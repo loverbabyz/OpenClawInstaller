@@ -483,22 +483,6 @@ struct ConfigEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Title bar
-            HStack {
-                Text("OpenClaw 配置编辑器")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                Spacer()
-                Text(vm.hasUnsavedChanges ? "未保存的更改" : "")
-                    .font(.system(size: 11))
-                    .foregroundColor(.yellow.opacity(0.7))
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .background(Color.white.opacity(0.03))
-
-            Divider().overlay(Color.white.opacity(0.06))
-
             // Main content: sidebar + detail
             HStack(spacing: 0) {
                 // Sidebar
@@ -592,6 +576,10 @@ struct ConfigEditorView: View {
                         .font(.system(size: 11))
                         .foregroundColor(.red)
                         .lineLimit(1)
+                } else if vm.hasUnsavedChanges {
+                    Text("未保存的更改")
+                        .font(.system(size: 11))
+                        .foregroundColor(.yellow.opacity(0.7))
                 }
                 Spacer()
 

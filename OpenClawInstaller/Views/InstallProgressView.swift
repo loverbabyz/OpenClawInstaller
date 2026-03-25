@@ -29,7 +29,7 @@ struct InstallProgressView: View {
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(
                                     LinearGradient(
-                                        colors: [Color.accentColor, Color(red: 0.3, green: 0.8, blue: 0.5)],
+                                        colors: [Color.accentColor, Color(red: 1.0, green: 0.4, blue: 0.35)],
                                         startPoint: .leading,
                                         endPoint: .trailing
                                     )

@@ -266,6 +266,7 @@ struct GatewaySectionEditor: View {
 struct ChannelsSectionEditor: View {
     @ObservedObject var vm: ConfigEditorViewModel
     @State private var showAddChannel = false
+    @State private var showAddBinding = false
 
     private var channelPairs: [(key: String, value: ConfigValue)] {
         guard let val = vm.sectionValue(for: "channels"),
@@ -275,6 +276,24 @@ struct ChannelsSectionEditor: View {
 
     private var existingChannelKeys: Set<String> {
         Set(channelPairs.map(\.key))
+    }
+
+    /// All agent bindings: [(agentIndex, agentId, binding)]
+    private var allBindings: [(agentIndex: Int, agentId: String, binding: String)] {
+        let agents = vm.extractArray(section: "agents", path: ["list"])
+        var result: [(Int, String, String)] = []
+        for (i, agent) in agents.enumerated() {
+            let aid: String
+            if case .object(let pairs) = agent,
+               let idPair = pairs.first(where: { $0.key == "id" }),
+               case .string(let s) = idPair.value { aid = s }
+            else { aid = "agent-\(i)" }
+            let items = vm.extractArray(section: "agents", path: ["list", "\(i)", "bindings"])
+            for item in items {
+                if case .string(let b) = item { result.append((i, aid, b)) }
+            }
+        }
+        return result
     }
 
     var body: some View {
@@ -302,8 +321,365 @@ struct ChannelsSectionEditor: View {
                 ForEach(channelPairs, id: \.key) { pair in
                     ConfigChannelCard(channelKey: pair.key, value: pair.value, vm: vm)
                 }
+
+                // ── Bindings ──
+                Divider().background(Color.white.opacity(0.06)).padding(.vertical, 4)
+
+                ConfigHeader(
+                    title: "路由绑定 (Bindings)",
+                    subtitle: "将频道绑定到 Agent，格式：channel[:accountId] → agent（参考 openclaw agents bind）"
+                )
+
+                if allBindings.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.3))
+                        Text("暂无路由绑定。未绑定的频道将路由到默认 Agent (main)。")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.35))
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.03)))
+                } else {
+                    ForEach(Array(allBindings.enumerated()), id: \.offset) { _, entry in
+                        ChannelBindingRow(
+                            agentIndex: entry.agentIndex,
+                            agentId: entry.agentId,
+                            binding: entry.binding,
+                            vm: vm
+                        )
+                    }
+                }
+
+                Button(action: { showAddBinding = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 12))
+                        Text("添加绑定")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showAddBinding) {
+                    ChannelAddBindingPopover(vm: vm, isPresented: $showAddBinding)
+                }
             }
         }
+    }
+}
+
+// MARK: - Channel Binding Row
+
+private struct ChannelBindingRow: View {
+    let agentIndex: Int
+    let agentId: String
+    let binding: String
+    @ObservedObject var vm: ConfigEditorViewModel
+    @State private var confirmDelete = false
+
+    private var channelName: String {
+        String(binding.split(separator: ":").first ?? Substring(binding))
+    }
+
+    private var channelIconName: String {
+        if let ct = ChannelType(rawValue: channelName) { return ct.icon }
+        return "antenna.radiowaves.left.and.right"
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: channelIconName)
+                .font(.system(size: 11))
+                .foregroundColor(.accentColor.opacity(0.8))
+                .frame(width: 16)
+
+            Text(binding)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.white)
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.white.opacity(0.3))
+
+            HStack(spacing: 4) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
+                Text(agentId)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.8))
+            }
+
+            Spacer()
+
+            if confirmDelete {
+                HStack(spacing: 6) {
+                    Text("确认?")
+                        .font(.system(size: 10))
+                        .foregroundColor(.red)
+                    Button("删除") {
+                        removeBinding()
+                        confirmDelete = false
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.red)
+                    .buttonStyle(.plain)
+                    Button("取消") { confirmDelete = false }
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.4))
+                        .buttonStyle(.plain)
+                }
+            } else {
+                Button(action: { confirmDelete = true }) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundColor(.red.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+    }
+
+    private func removeBinding() {
+        let items = vm.extractArray(section: "agents", path: ["list", "\(agentIndex)", "bindings"])
+        if let idx = items.firstIndex(where: {
+            if case .string(let s) = $0 { return s == binding }
+            return false
+        }) {
+            vm.removeArrayItem(sectionKey: "agents", path: ["list", "\(agentIndex)", "bindings"], index: idx)
+        }
+    }
+}
+
+// MARK: - Channel Add Binding Popover
+
+private struct ChannelAddBindingPopover: View {
+    @ObservedObject var vm: ConfigEditorViewModel
+    @Binding var isPresented: Bool
+    @State private var selectedChannel = ""
+    @State private var accountId = ""
+    @State private var selectedAgentIndex: Int? = nil
+    @State private var customBinding = ""
+
+    private var configuredChannels: [(key: String, title: String, icon: String)] {
+        guard let val = vm.sectionValue(for: "channels"),
+              case .object(let pairs) = val else { return [] }
+        return pairs.map { pair in
+            if let ct = ChannelType(rawValue: pair.key) {
+                return (key: pair.key, title: ct.title, icon: ct.icon)
+            }
+            return (key: pair.key, title: pair.key, icon: "antenna.radiowaves.left.and.right")
+        }
+    }
+
+    private var agentsList: [(index: Int, id: String)] {
+        let agents = vm.extractArray(section: "agents", path: ["list"])
+        var result: [(Int, String)] = []
+        for (i, agent) in agents.enumerated() {
+            if case .object(let pairs) = agent,
+               let idPair = pairs.first(where: { $0.key == "id" }),
+               case .string(let s) = idPair.value {
+                result.append((i, s))
+            } else {
+                result.append((i, "agent-\(i)"))
+            }
+        }
+        return result
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("添加路由绑定")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+
+            Text("格式：channel[:accountId] → agent")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.35))
+
+            // ── Select Channel ──
+            VStack(alignment: .leading, spacing: 4) {
+                Text("选择频道")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(configuredChannels, id: \.key) { ch in
+                            Button(action: { selectedChannel = ch.key }) {
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .stroke(selectedChannel == ch.key ? Color.accentColor : Color.white.opacity(0.2), lineWidth: 1.5)
+                                        .frame(width: 12, height: 12)
+                                        .overlay(
+                                            Circle()
+                                                .fill(selectedChannel == ch.key ? Color.accentColor : Color.clear)
+                                                .frame(width: 6, height: 6)
+                                        )
+                                    Image(systemName: ch.icon)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.5))
+                                        .frame(width: 16)
+                                    Text(ch.title)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.white.opacity(0.85))
+                                    Spacer()
+                                    Text(ch.key)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(.white.opacity(0.3))
+                                }
+                                .padding(.vertical, 5)
+                                .padding(.horizontal, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .fill(selectedChannel == ch.key ? Color.accentColor.opacity(0.1) : Color.clear)
+                                )
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 140)
+            }
+
+            // Account ID
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Account ID（可选）")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+                TextField("", text: $accountId)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white)
+                    .darkPlaceholder("default / bot1 / 账号标识", show: accountId.isEmpty)
+                    .padding(6)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+
+            Divider().overlay(Color.white.opacity(0.06))
+
+            // ── Select Agent ──
+            VStack(alignment: .leading, spacing: 4) {
+                Text("目标 Agent")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+
+                if agentsList.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.yellow.opacity(0.7))
+                        Text("尚未配置 Agent，请先在 Agents 中添加")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.yellow.opacity(0.04)))
+                } else {
+                    ForEach(agentsList, id: \.index) { agent in
+                        Button(action: { selectedAgentIndex = agent.index }) {
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .stroke(selectedAgentIndex == agent.index ? Color.accentColor : Color.white.opacity(0.2), lineWidth: 1.5)
+                                    .frame(width: 12, height: 12)
+                                    .overlay(
+                                        Circle()
+                                            .fill(selectedAgentIndex == agent.index ? Color.accentColor : Color.clear)
+                                            .frame(width: 6, height: 6)
+                                    )
+                                Image(systemName: "cpu")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.5))
+                                    .frame(width: 16)
+                                Text(agent.id)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.85))
+                                Spacer()
+                            }
+                            .padding(.vertical, 5)
+                            .padding(.horizontal, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(selectedAgentIndex == agent.index ? Color.accentColor.opacity(0.1) : Color.clear)
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Divider().overlay(Color.white.opacity(0.06))
+
+            // Manual input
+            VStack(alignment: .leading, spacing: 4) {
+                Text("或手动输入绑定")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+                HStack(spacing: 6) {
+                    TextField("", text: $customBinding)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.white)
+                        .darkPlaceholder("telegram:bot1", show: customBinding.isEmpty)
+                        .padding(6)
+                        .background(Color.white.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                    Button("添加") {
+                        guard let idx = selectedAgentIndex else { return }
+                        let b = customBinding.trimmingCharacters(in: .whitespaces)
+                        guard !b.isEmpty else { return }
+                        vm.appendArrayItem(sectionKey: "agents", path: ["list", "\(idx)", "bindings"], value: .string(b))
+                        isPresented = false
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.accentColor)
+                    .buttonStyle(.plain)
+                    .disabled(customBinding.trimmingCharacters(in: .whitespaces).isEmpty || selectedAgentIndex == nil)
+                }
+            }
+
+            // Confirm
+            HStack {
+                Spacer()
+                Button("取消") { isPresented = false }
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.5))
+                    .buttonStyle(.plain)
+
+                Button(action: {
+                    guard !selectedChannel.isEmpty, let idx = selectedAgentIndex else { return }
+                    let acct = accountId.trimmingCharacters(in: .whitespaces)
+                    let binding = acct.isEmpty ? selectedChannel : "\(selectedChannel):\(acct)"
+                    vm.appendArrayItem(sectionKey: "agents", path: ["list", "\(idx)", "bindings"], value: .string(binding))
+                    isPresented = false
+                }) {
+                    Text("确定")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                        .background(
+                            (selectedChannel.isEmpty || selectedAgentIndex == nil)
+                            ? Color.accentColor.opacity(0.3) : Color.accentColor
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedChannel.isEmpty || selectedAgentIndex == nil)
+            }
+        }
+        .padding(14)
+        .frame(width: 340)
+        .background(Color(red: 0.1, green: 0.1, blue: 0.16))
     }
 }
 
@@ -1629,7 +2005,7 @@ private struct AddAgentPopover: View {
     @Binding var isPresented: Bool
     @State private var agentName = ""
     @State private var agentModel = ""
-    @State private var agentWorkspace = ""
+    @State private var agentWorkspace = "~/.openclaw/workspace-<id>"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
