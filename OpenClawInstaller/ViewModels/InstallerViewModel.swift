@@ -311,6 +311,15 @@ enum OnboardStep: Int, CaseIterable {
     }
 }
 
+// MARK: - Custom Provider Verification Status
+
+enum CustomVerifyStatus: String {
+    case idle
+    case verifying
+    case success
+    case failed
+}
+
 // MARK: - Auth Choice
 
 enum AuthType: String, Hashable {
@@ -407,7 +416,7 @@ struct ModelProvider: Identifiable, Hashable {
             "gemini/gemini-2.0-flash",
         ], authChoices: [
             .apiKey(label: "Gemini API Key", placeholder: "API Key", authURL: "https://aistudio.google.com/apikey"),
-            .oauth(id: "google-gemini-cli", label: "Gemini CLI OAuth", cliProvider: "google-gemini-cli", cliMethod: "oauth", hint: "通过 Google 账号 OAuth 登录", requiredPlugin: "google-gemini-cli-auth"),
+            .oauth(id: "google-gemini-cli", label: "Gemini CLI OAuth", cliProvider: "google-gemini-cli", cliMethod: "oauth", hint: "通过 Google 账号 OAuth 登录", requiredPlugin: "google"),
         ]),
         ModelProvider(id: "openrouter", title: "OpenRouter", description: "多模型聚合路由", icon: "arrow.triangle.branch", placeholder: "sk-or-...", group: .popular, needsBaseURL: false, needsModelId: false, defaultModel: "openrouter/anthropic/claude-sonnet-4-5", authChoices: [
             .apiKey(placeholder: "sk-or-..."),
@@ -453,9 +462,9 @@ struct ModelProvider: Identifiable, Hashable {
             "minimax-portal/MiniMax-M2.5-highspeed",
             "minimax-portal/MiniMax-M2.5-Lightning",
         ], authChoices: [
-            .oauth(id: "minimax-global-oauth", label: "Global — OAuth (minimax.io)", cliProvider: "minimax-portal", cliMethod: "oauth", hint: "Global 端点 — 通过浏览器 OAuth 授权", requiredPlugin: "minimax-portal-auth"),
+            .oauth(id: "minimax-global-oauth", label: "Global — OAuth (minimax.io)", cliProvider: "minimax-portal", cliMethod: "oauth", hint: "Global 端点 — 通过浏览器 OAuth 授权", requiredPlugin: "minimax"),
             .apiKey(id: "minimax-global-api", label: "Global — API Key (minimax.io)", placeholder: "sk-api-... / sk-cp-...", authURL: "https://www.minimax.io/platform/api/key-management"),
-            .oauth(id: "minimax-cn-oauth", label: "CN — OAuth (minimaxi.com)", cliProvider: "minimax-portal", cliMethod: "oauth-cn", hint: "CN 端点 — 通过浏览器 OAuth 授权", requiredPlugin: "minimax-portal-auth"),
+            .oauth(id: "minimax-cn-oauth", label: "CN — OAuth (minimaxi.com)", cliProvider: "minimax-portal", cliMethod: "oauth-cn", hint: "CN 端点 — 通过浏览器 OAuth 授权", requiredPlugin: "minimax"),
             .apiKey(id: "minimax-cn-api", label: "CN — API Key (minimaxi.com)", placeholder: "sk-api-... / sk-cp-...", authURL: "https://www.minimaxi.com/platform/api/key-management"),
         ]),
         ModelProvider(id: "qwen-portal", title: "通义千问 (Portal)", description: "阿里通义千问", icon: "cpu.fill", placeholder: "", group: .china, needsBaseURL: false, needsModelId: false, defaultModel: "qwen-portal/coder-model", authChoices: [
@@ -621,15 +630,36 @@ enum ChannelType: String, CaseIterable, Identifiable {
 
 // MARK: - Channel Config Fields
 
+/// The kind of input a channel field renders.
+indirect enum ChannelFieldKind: Equatable {
+    /// Plain text (or secure text when `sensitive == true`).
+    case text
+    /// A fixed set of options presented as a picker.
+    case picker(options: [(value: String, label: String)])
+    /// A field that is only visible when another field equals a specific value.
+    case conditional(dependsOn: String, showWhen: String, innerKind: ChannelFieldKind)
+
+    static func == (lhs: ChannelFieldKind, rhs: ChannelFieldKind) -> Bool {
+        switch (lhs, rhs) {
+        case (.text, .text): return true
+        case let (.picker(a), .picker(b)): return a.map(\.value) == b.map(\.value)
+        case let (.conditional(d1, s1, k1), .conditional(d2, s2, k2)):
+            return d1 == d2 && s1 == s2 && k1 == k2
+        default: return false
+        }
+    }
+}
+
 struct ChannelField: Identifiable {
     let id: String       // key name (e.g. "botToken")
     let label: String
     let placeholder: String
     let sensitive: Bool
     let hint: String
+    let kind: ChannelFieldKind
 
-    init(_ id: String, label: String, placeholder: String = "", sensitive: Bool = false, hint: String = "") {
-        self.id = id; self.label = label; self.placeholder = placeholder; self.sensitive = sensitive; self.hint = hint
+    init(_ id: String, label: String, placeholder: String = "", sensitive: Bool = false, hint: String = "", kind: ChannelFieldKind = .text) {
+        self.id = id; self.label = label; self.placeholder = placeholder; self.sensitive = sensitive; self.hint = hint; self.kind = kind
     }
 }
 
@@ -698,8 +728,35 @@ extension ChannelType {
             ]
         case .feishu:
             return [
-                ChannelField("appId", label: "App ID", placeholder: "cli_xxx"),
-                ChannelField("appSecret", label: "App Secret", sensitive: true),
+                ChannelField("appId", label: "App ID", placeholder: "cli_xxx", hint: "飞书开放平台应用凭证"),
+                ChannelField("appSecret", label: "App Secret", sensitive: true, hint: "飞书开放平台应用凭证"),
+                ChannelField("domain", label: "域名", hint: "API 端点", kind: .picker(options: [
+                    (value: "feishu", label: "飞书 (feishu.cn)"),
+                    (value: "lark", label: "Lark (larksuite.com)"),
+                ])),
+                ChannelField("connectionMode", label: "连接模式", kind: .picker(options: [
+                    (value: "websocket", label: "WebSocket（推荐）"),
+                    (value: "webhook", label: "Webhook"),
+                ])),
+                ChannelField("verificationToken", label: "Verification Token", sensitive: true,
+                             hint: "Webhook 模式所需",
+                             kind: .conditional(dependsOn: "connectionMode", showWhen: "webhook", innerKind: .text)),
+                ChannelField("encryptKey", label: "Encrypt Key", sensitive: true,
+                             hint: "Webhook 模式所需",
+                             kind: .conditional(dependsOn: "connectionMode", showWhen: "webhook", innerKind: .text)),
+                ChannelField("webhookPath", label: "Webhook 路径", placeholder: "/feishu/events",
+                             hint: "Webhook 回调端点路径",
+                             kind: .conditional(dependsOn: "connectionMode", showWhen: "webhook", innerKind: .text)),
+                ChannelField("dmPolicy", label: "私聊策略", kind: .picker(options: [
+                    (value: "pairing", label: "配对模式（默认）"),
+                    (value: "open", label: "开放 — 所有人可用"),
+                    (value: "allowlist", label: "白名单"),
+                ])),
+                ChannelField("groupPolicy", label: "群聊策略", kind: .picker(options: [
+                    (value: "allowlist", label: "白名单（默认）"),
+                    (value: "open", label: "开放 — 所有群可用"),
+                    (value: "disabled", label: "禁用群聊"),
+                ])),
             ]
         case .nostr:
             return [
@@ -882,8 +939,15 @@ class InstallerViewModel: ObservableObject {
     @Published var oauthError: String?
     @Published var oauthLog: [String] = []
     @Published var selectedModel: String = ""   // e.g. "anthropic/claude-sonnet-4-5-20250514"
+    @Published var cliModels: [String] = []      // Models fetched from `openclaw models list`
+    @Published var cliModelsLoading: Bool = false
     @Published var customBaseURL: String = ""
     @Published var customModelId: String = ""
+    @Published var customCompatibility: String = "openai"  // "openai" | "anthropic" | "unknown"
+    @Published var customEndpointId: String = ""            // Provider ID derived from URL
+    @Published var customAlias: String = ""                 // Optional model alias
+    @Published var customVerifyStatus: CustomVerifyStatus = .idle
+    @Published var customVerifyError: String?
 
     // Step 2: Workspace
     @Published var workspacePath: String = "~/.openclaw/workspace"
@@ -1699,6 +1763,199 @@ class InstallerViewModel: ObservableObject {
         oauthSuccess = false
         oauthError = nil
         oauthLog = []
+        cliModels = []
+        customBaseURL = ""
+        customModelId = ""
+        customCompatibility = "openai"
+        customEndpointId = ""
+        customAlias = ""
+        customVerifyStatus = .idle
+        customVerifyError = nil
+
+        // Fetch models from CLI in background
+        fetchCliModels()
+    }
+
+    /// Fetch available models from `openclaw models list` for the selected provider.
+    /// Derives the CLI provider filter from the default model prefix (e.g. "minimax-portal").
+    func fetchCliModels() {
+        let provider = selectedProvider
+        guard !provider.needsModelId else { return }
+
+        // Derive CLI provider name from model key prefix (before '/')
+        let cliProviderIds: [String]
+        if !provider.defaultModel.isEmpty, let prefix = provider.defaultModel.split(separator: "/").first {
+            cliProviderIds = [String(prefix)]
+        } else if !provider.models.isEmpty, let prefix = provider.models.first?.split(separator: "/").first {
+            cliProviderIds = [String(prefix)]
+        } else {
+            cliProviderIds = [provider.id]
+        }
+
+        cliModelsLoading = true
+        let currentId = provider.id
+
+        Task {
+            var allModels: [String] = []
+            for pid in cliProviderIds {
+                let result = await shell.run("openclaw models list --all --json --provider \(pid) 2>/dev/null")
+                if result.exitCode == 0,
+                   let data = result.output.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let models = json["models"] as? [[String: Any]] {
+                    let keys = models.compactMap { $0["key"] as? String }
+                    allModels.append(contentsOf: keys)
+                }
+            }
+
+            await MainActor.run {
+                // Only apply if provider hasn't changed while loading
+                guard self.selectedProvider.id == currentId else { return }
+                self.cliModelsLoading = false
+                if !allModels.isEmpty {
+                    self.cliModels = allModels
+                    // If current selection isn't in CLI list, select first
+                    if !allModels.contains(self.selectedModel) {
+                        self.selectedModel = allModels.first ?? provider.defaultModel
+                    }
+                }
+            }
+        }
+    }
+
+    /// Derive endpoint ID from a custom base URL (matching CLI buildEndpointIdFromUrl)
+    func deriveEndpointId(from baseUrl: String) -> String {
+        guard let url = URL(string: baseUrl), let host = url.host else { return "custom" }
+        let sanitized = host.replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression).lowercased()
+        let portSuffix = url.port.map { "-\($0)" } ?? ""
+        let id = "custom-\(sanitized)\(portSuffix)".trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return id.isEmpty ? "custom" : id
+    }
+
+    /// Update endpoint ID when base URL changes
+    func onCustomBaseURLChanged() {
+        let trimmed = customBaseURL.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty {
+            customEndpointId = deriveEndpointId(from: trimmed)
+        }
+        customVerifyStatus = .idle
+        customVerifyError = nil
+    }
+
+    /// Verify the custom endpoint by sending a test request (matching CLI verification)
+    func verifyCustomEndpoint() async {
+        let baseUrl = customBaseURL.trimmingCharacters(in: .whitespaces)
+        let modelId = customModelId.trimmingCharacters(in: .whitespaces)
+        guard !baseUrl.isEmpty, !modelId.isEmpty else {
+            await MainActor.run {
+                customVerifyStatus = .failed
+                customVerifyError = "请填写 Base URL 和模型 ID"
+            }
+            return
+        }
+
+        await MainActor.run {
+            customVerifyStatus = .verifying
+            customVerifyError = nil
+        }
+
+        let compatibility = customCompatibility
+        let resolvedApiKey = apiKey.trimmingCharacters(in: .whitespaces)
+
+        // Build verification request based on compatibility
+        let result: (ok: Bool, detected: String?)
+        if compatibility == "unknown" {
+            // Try OpenAI first, then Anthropic
+            let openaiResult = await verifyOpenAiEndpoint(baseUrl: baseUrl, modelId: modelId, apiKey: resolvedApiKey)
+            if openaiResult {
+                result = (true, "openai")
+            } else {
+                let anthropicResult = await verifyAnthropicEndpoint(baseUrl: baseUrl, modelId: modelId, apiKey: resolvedApiKey)
+                result = anthropicResult ? (true, "anthropic") : (false, nil)
+            }
+        } else if compatibility == "anthropic" {
+            let ok = await verifyAnthropicEndpoint(baseUrl: baseUrl, modelId: modelId, apiKey: resolvedApiKey)
+            result = (ok, nil)
+        } else {
+            let ok = await verifyOpenAiEndpoint(baseUrl: baseUrl, modelId: modelId, apiKey: resolvedApiKey)
+            result = (ok, nil)
+        }
+
+        await MainActor.run {
+            if result.ok {
+                customVerifyStatus = .success
+                if let detected = result.detected {
+                    customCompatibility = detected
+                }
+            } else {
+                customVerifyStatus = .failed
+                customVerifyError = "验证失败：端点未响应"
+            }
+        }
+    }
+
+    private func verifyOpenAiEndpoint(baseUrl: String, modelId: String, apiKey: String) async -> Bool {
+        let normalizedUrl = baseUrl.hasSuffix("/") ? baseUrl : baseUrl + "/"
+        guard let url = URL(string: normalizedUrl + "chat/completions") else { return false }
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        let body: [String: Any] = [
+            "model": modelId,
+            "messages": [["role": "user", "content": "Hi"]],
+            "max_tokens": 1,
+            "stream": false
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse {
+                return httpResponse.statusCode == 200
+            }
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    private func verifyAnthropicEndpoint(baseUrl: String, modelId: String, apiKey: String) async -> Bool {
+        let trimmed = baseUrl.trimmingCharacters(in: .whitespaces)
+        let base = trimmed.hasSuffix("/v1") || trimmed.hasSuffix("/v1/") ? trimmed : trimmed.replacingOccurrences(of: "/$", with: "", options: .regularExpression) + "/v1"
+        let normalizedUrl = base.hasSuffix("/") ? base : base + "/"
+        guard let url = URL(string: normalizedUrl + "messages") else { return false }
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        if !apiKey.isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        }
+        let body: [String: Any] = [
+            "model": modelId,
+            "max_tokens": 1,
+            "messages": [["role": "user", "content": "Hi"]],
+            "stream": false
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse {
+                return httpResponse.statusCode == 200
+            }
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    /// Resolve the provider API type string for config (matching CLI)
+    func resolveProviderApi() -> String {
+        return customCompatibility == "anthropic" ? "anthropic-messages" : "openai-completions"
     }
 
     /// Open API key console page in browser
@@ -1747,11 +2004,33 @@ class InstallerViewModel: ObservableObject {
             oauthLog.append("==> \(cmd)")
         }
 
+        // Wrap with `script -q /dev/null` to allocate a pseudo-TTY;
+        // the CLI requires an interactive TTY for OAuth/device flows.
+        let ttyCmd = "script -q /dev/null \(cmd)"
+
+        // Regex to strip ANSI escape sequences (colors, cursor moves, etc.)
+        let ansiPattern = try! NSRegularExpression(pattern: "\\x1b\\[[0-9;]*[A-Za-z]|\\x1b\\][^\u{07}]*\u{07}|\\x1b\\[\\?[0-9;]*[hl]")
+
         // Use streaming so the user can see real-time output (e.g. browser URL)
-        let exitCode = await shell.runStreaming(cmd) { [weak self] chunk in
-            let lines = chunk.components(separatedBy: "\n").filter { !$0.isEmpty }
+        let exitCode = await shell.runStreaming(ttyCmd) { [weak self] chunk in
+            // Strip \r, ANSI escapes, and control chars injected by `script`
+            var cleaned = chunk.replacingOccurrences(of: "\r", with: "")
+            cleaned = ansiPattern.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+            let lines = cleaned.components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            guard !lines.isEmpty else { return }
             DispatchQueue.main.async {
-                self?.oauthLog.append(contentsOf: lines)
+                guard let self else { return }
+                for line in lines {
+                    // Skip duplicates (spinner animation frames)
+                    if line == self.oauthLog.last { continue }
+                    self.oauthLog.append(line)
+                }
+                // Cap log to prevent UI freeze
+                if self.oauthLog.count > 200 {
+                    self.oauthLog = Array(self.oauthLog.suffix(150))
+                }
             }
         }
 
@@ -1820,9 +2099,14 @@ class InstallerViewModel: ObservableObject {
         // Step 2: Build and write config file (matching CLI onboard output)
         appendOnboardingLog("==> 写入配置文件...")
 
-        // Resolve model
+        // Resolve model — for custom providers, use endpointId/modelId (matching CLI)
         let resolvedModel: String
-        if selectedProvider.needsModelId {
+        let isCustomProvider = selectedProvider.id == "custom"
+        if isCustomProvider {
+            let endpointId = customEndpointId.trimmingCharacters(in: .whitespaces)
+            let modelId = customModelId.trimmingCharacters(in: .whitespaces)
+            resolvedModel = !endpointId.isEmpty && !modelId.isEmpty ? "\(endpointId)/\(modelId)" : modelId
+        } else if selectedProvider.needsModelId {
             resolvedModel = customModelId
         } else if !selectedModel.isEmpty {
             resolvedModel = selectedModel
@@ -1842,10 +2126,53 @@ class InstallerViewModel: ObservableObject {
             "workspace": resolvedWorkspace
         ]
         if !resolvedModel.isEmpty {
+            var modelEntry: [String: Any] = [:]
+            if isCustomProvider && !customAlias.trimmingCharacters(in: .whitespaces).isEmpty {
+                modelEntry["alias"] = customAlias.trimmingCharacters(in: .whitespaces)
+            }
             agentDefaults["model"] = ["primary": resolvedModel]
-            agentDefaults["models"] = [resolvedModel: [:] as [String: Any]]
+            agentDefaults["models"] = [resolvedModel: modelEntry]
         }
         config["agents"] = ["defaults": agentDefaults]
+
+        // models.providers — custom provider config (matching CLI applyCustomApiConfig)
+        if isCustomProvider {
+            let baseUrl = customBaseURL.trimmingCharacters(in: .whitespaces)
+            let modelId = customModelId.trimmingCharacters(in: .whitespaces)
+            let endpointId = customEndpointId.trimmingCharacters(in: .whitespaces).isEmpty
+                ? deriveEndpointId(from: baseUrl)
+                : customEndpointId.trimmingCharacters(in: .whitespaces)
+
+            if !baseUrl.isEmpty && !modelId.isEmpty {
+                let providerApi = resolveProviderApi()
+                var providerEntry: [String: Any] = [
+                    "baseUrl": baseUrl,
+                    "api": providerApi,
+                    "models": [[
+                        "id": modelId,
+                        "name": "\(modelId) (Custom Provider)",
+                        "contextWindow": 128000,
+                        "maxTokens": 4096,
+                        "input": ["text"],
+                        "cost": [
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0
+                        ] as [String: Any],
+                        "reasoning": false
+                    ] as [String: Any]]
+                ]
+                let customApiKey = apiKey.trimmingCharacters(in: .whitespaces)
+                if !customApiKey.isEmpty {
+                    providerEntry["apiKey"] = customApiKey
+                }
+                config["models"] = [
+                    "mode": "merge",
+                    "providers": [endpointId: providerEntry]
+                ] as [String: Any]
+            }
+        }
 
         // gateway — mode, port, bind, auth, tailscale (matching CLI onboard)
         let inferredMode: String
