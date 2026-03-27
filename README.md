@@ -2,7 +2,11 @@
 
 <img src="OpenClawInstaller/Assets.xcassets/AppIcon.appiconset/256.png" width="128" alt="OpenClaw Installer Icon" />
 
-# OpenClaw Installer
+# OpenClaw Installer / OpenClaw 安装器
+
+[English](#english) | [中文](#中文)
+
+---
 
 **A native macOS installer for [OpenClaw](https://github.com/nicepkg/openclaw) — built with SwiftUI**
 
@@ -21,27 +25,31 @@
 
 ---
 
-## Screenshots
+## Screenshots / 截图
 
 <table>
   <tr>
-    <td align="center"><img src="Screenshots/01-welcome.jpeg" width="280" /><br/><b>Welcome</b><br/><sub>System detection & version info</sub></td>
-    <td align="center"><img src="Screenshots/02-method-selection.jpeg" width="280" /><br/><b>Install Method</b><br/><sub>NPM or Git source</sub></td>
-    <td align="center"><img src="Screenshots/03-dependency-check.jpeg" width="280" /><br/><b>Dependencies</b><br/><sub>Auto-check & install</sub></td>
+    <td align="center"><img src="Screenshots/01-welcome.jpeg" width="280" /><br/><b>Welcome</b><br/><sub>系统检测 & 版本信息</sub></td>
+    <td align="center"><img src="Screenshots/02-method-selection.jpeg" width="280" /><br/><b>Install Method</b><br/><sub>安装方式 / NPM or Git</sub></td>
+    <td align="center"><img src="Screenshots/03-dependency-check.jpeg" width="280" /><br/><b>Dependencies</b><br/><sub>依赖检查 & 自动安装</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="Screenshots/04-provider-selection.jpeg" width="280" /><br/><b>LLM Providers</b><br/><sub>40+ providers supported</sub></td>
-    <td align="center"><img src="Screenshots/05-channel-config.jpeg" width="280" /><br/><b>Channels</b><br/><sub>22 messaging channels</sub></td>
-    <td align="center"><img src="Screenshots/06-completion.jpeg" width="280" /><br/><b>Completion</b><br/><sub>Quick start commands</sub></td>
+    <td align="center"><img src="Screenshots/04-provider-selection.jpeg" width="280" /><br/><b>LLM Providers</b><br/><sub>40+ 提供商支持</sub></td>
+    <td align="center"><img src="Screenshots/05-channel-config.jpeg" width="280" /><br/><b>Channels</b><br/><sub>22 个消息通道</sub></td>
+    <td align="center"><img src="Screenshots/06-completion.jpeg" width="280" /><br/><b>Completion</b><br/><sub>快速启动命令</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="Screenshots/07-config-editor.png" width="280" /><br/><b>Config Editor</b><br/><sub>GUI configuration</sub></td>
-    <td align="center"><img src="Screenshots/08-doctor.png" width="280" /><br/><b>Doctor</b><br/><sub>Diagnostics & auto-fix</sub></td>
+    <td align="center"><img src="Screenshots/07-config-editor.png" width="280" /><br/><b>Config Editor</b><br/><sub>图形化配置编辑器</sub></td>
+    <td align="center"><img src="Screenshots/08-doctor.png" width="280" /><br/><b>Doctor</b><br/><sub>诊断 & 自动修复</sub></td>
     <td></td>
   </tr>
 </table>
 
-## Features
+---
+
+## English
+
+### Features
 
 | Feature | Description |
 |---------|-------------|
@@ -55,13 +63,13 @@
 | **Doctor Diagnostics** | One-click health check with auto-fix |
 | **Uninstall & Backup** | Clean removal with optional timestamped backup |
 
-## Quick Start
+### Quick Start
 
-### Download
+#### Download
 
 Grab the latest `.dmg` from [**Releases**](https://github.com/loverbabyz/OpenClawInstaller/releases), open it, and drag to Applications.
 
-### Build from Source
+#### Build from Source
 
 ```bash
 # Clone
@@ -77,14 +85,14 @@ xcodebuild -project OpenClawInstaller.xcodeproj \
   -configuration Release
 ```
 
-## Requirements
+### Requirements
 
 | Requirement | Version |
 |-------------|---------|
 | macOS | 13.0+ |
 | Xcode | 15.0+ (for building) |
 
-## Project Structure
+### Project Structure
 
 ```
 OpenClawInstaller/
@@ -106,7 +114,80 @@ OpenClawInstaller/
     └── ShellExecutor.swift          # Shell command execution with PATH management
 ```
 
-## License
+### License
+
+[MIT](LICENSE)
+
+---
+
+## 中文
+
+### 功能特点
+
+| 功能 | 描述 |
+|------|------|
+| **引导式向导** | 6 步安装流程：欢迎 → 选择方式 → 检查依赖 → 安装 → 配置 → 完成 |
+| **多种安装方式** | npm（推荐）或 git 源码 — 选择适合您的工作方式 |
+| **依赖管理** | 自动检测并安装 Homebrew、Node.js v22+、Git、pnpm |
+| **40+ LLM 提供商** | Anthropic、OpenAI、Gemini、Mistral、xAI、国内提供商等 |
+| **22 个消息通道** | Telegram、WhatsApp、Discord、Slack、微信、LINE 等 |
+| **配置向导** | 认证、模型、网关、钩子、技能 — 一站式配置 |
+| **配置编辑器** | 独立的图形界面来编辑 `~/.openclaw/openclaw.json` |
+| **诊断工具** | 一键健康检查并自动修复 |
+| **卸载与备份** | 干净卸载，支持带时间戳的备份 |
+
+### 快速开始
+
+#### 下载安装
+
+从 [**Releases**](https://github.com/loverbabyz/OpenClawInstaller/releases) 下载最新的 `.dmg` 文件，打开并拖到应用程序文件夹。
+
+#### 源码构建
+
+```bash
+# 克隆仓库
+git clone https://github.com/loverbabyz/OpenClawInstaller.git
+cd OpenClawInstaller
+
+# 在 Xcode 中打开
+open OpenClawInstaller.xcodeproj
+
+# 或使用命令行构建
+xcodebuild -project OpenClawInstaller.xcodeproj \
+  -scheme OpenClawInstaller \
+  -configuration Release
+```
+
+### 系统要求
+
+| 要求 | 版本 |
+|------|------|
+| macOS | 13.0+ |
+| Xcode | 15.0+（用于构建） |
+
+### 项目结构
+
+```
+OpenClawInstaller/
+├── OpenClawInstallerApp.swift       # 应用入口
+├── ContentView.swift                # 主视图，包含步骤导航
+├── ViewModels/
+│   └── InstallerViewModel.swift     # 核心业务逻辑
+├── Views/
+│   ├── WelcomeView.swift            # 系统检测和卸载
+│   ├── MethodSelectionView.swift    # npm 或 git 选择
+│   ├── DependencyCheckView.swift    # 前置条件检查
+│   ├── InstallProgressView.swift   # 安装进度
+│   ├── OnboardingView.swift         # 12 步配置向导
+│   ├── ConfigEditorView.swift       # 独立的配置 GUI
+│   ├── ConfigSectionEditors.swift   # 配置区块组件
+│   ├── CompletionView.swift          # 最终步骤和启动
+│   └── DoctorView.swift             # 诊断视图
+└── Helpers/
+    └── ShellExecutor.swift          # Shell 命令执行，PATH 管理
+```
+
+### 开源协议
 
 [MIT](LICENSE)
 
