@@ -20,6 +20,7 @@
 		A10000010000000000000011 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000013 /* OnboardingView.swift */; };
 		A10000010000000000000014 /* ConfigEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000014 /* ConfigEditorView.swift */; };
 		A10000010000000000000015 /* ConfigSectionEditors.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000015 /* ConfigSectionEditors.swift */; };
+		A10000010000000000000017 /* SharedConfigContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000017 /* SharedConfigContent.swift */; };
 		A10000010000000000000016 /* DoctorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000016 /* DoctorView.swift */; };
 		B10000010000000000000001 /* MockShellExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000001 /* MockShellExecutor.swift */; };
 		B10000010000000000000002 /* InstallerViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000002 /* InstallerViewModelTests.swift */; };
@@ -54,6 +55,7 @@
 		A20000010000000000000013 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A20000010000000000000014 /* ConfigEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigEditorView.swift; sourceTree = "<group>"; };
 		A20000010000000000000015 /* ConfigSectionEditors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigSectionEditors.swift; sourceTree = "<group>"; };
+		A20000010000000000000017 /* SharedConfigContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedConfigContent.swift; sourceTree = "<group>"; };
 		A20000010000000000000016 /* DoctorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoctorView.swift; sourceTree = "<group>"; };
 		B20000010000000000000001 /* MockShellExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockShellExecutor.swift; sourceTree = "<group>"; };
 		B20000010000000000000002 /* InstallerViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallerViewModelTests.swift; sourceTree = "<group>"; };
@@ -115,6 +117,7 @@
 				A20000010000000000000013 /* OnboardingView.swift */,
 				A20000010000000000000014 /* ConfigEditorView.swift */,
 				A20000010000000000000015 /* ConfigSectionEditors.swift */,
+				A20000010000000000000017 /* SharedConfigContent.swift */,
 				A20000010000000000000016 /* DoctorView.swift */,
 			);
 			path = Views;
@@ -260,6 +263,7 @@
 				A10000010000000000000011 /* OnboardingView.swift in Sources */,
 				A10000010000000000000014 /* ConfigEditorView.swift in Sources */,
 				A10000010000000000000015 /* ConfigSectionEditors.swift in Sources */,
+				A10000010000000000000017 /* SharedConfigContent.swift in Sources */,
 				A10000010000000000000016 /* DoctorView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
