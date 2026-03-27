@@ -27,7 +27,7 @@ final class ConfigEditorWindowController: NSObject, NSWindowDelegate {
         )
         window.contentView = hostingView
         window.contentMinSize = NSSize(width: 640, height: 480)
-        window.title = "OpenClaw 配置编辑器"
+        window.title = "配置编辑器"
         window.center()
         window.delegate = self
         window.isReleasedWhenClosed = false
@@ -52,13 +52,21 @@ enum ConfigValue {
     case array([ConfigValue])
 }
 
+private let allKnownSections: [String] = [
+    "agents", "channels", "commands", "env", "gateway",
+    "hooks", "meta", "models", "plugins", "session", "skills",
+    "tools", "web", "wizard",
+]
+
 private let sectionIcons: [String: String] = [
     "agents": "cpu",
     "channels": "bubble.left.and.bubble.right",
     "commands": "command",
+    "env": "key.fill",
     "gateway": "network",
     "hooks": "link",
     "meta": "info.circle",
+    "models": "cpu",
     "plugins": "puzzlepiece",
     "session": "person.2",
     "skills": "wrench.and.screwdriver",
@@ -74,12 +82,14 @@ private let sectionDescriptions: [String: String] = [
     "gateway": "网关端口、绑定模式和认证设置",
     "hooks": "内置钩子（session-memory、boot-md 等）",
     "meta": "配置元数据（版本、最后修改时间）",
+    "models": "模型选择、默认模型与认证管理",
     "plugins": "已安装插件的启用/禁用状态",
     "session": "会话范围与 DM 策略",
     "skills": "技能安装管理器设置",
     "tools": "工具 Profile、Exec 执行策略、Web 工具与安全控制",
     "wizard": "安装向导运行记录",
     "web": "网络搜索服务商配置",
+    "env": "环境变量配置（API Key 等）",
 ]
 
 // MARK: - JSON ↔ ConfigValue
@@ -142,11 +152,25 @@ class ConfigEditorViewModel: ObservableObject {
     }
 
     func load() {
-        guard let data = FileManager.default.contents(atPath: configPath),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        if let data = FileManager.default.contents(atPath: configPath),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            sections = json.keys.sorted().map { key in
+                (key: key, value: parseValue(json[key]!))
+            }
+        }
 
-        sections = json.keys.sorted().map { key in
-            (key: key, value: parseValue(json[key]!))
+        // 补全所有已知 section，未配置的显示为空对象
+        for sectionKey in allKnownSections {
+            if !sections.contains(where: { $0.key == sectionKey }) {
+                sections.append((key: sectionKey, value: .object([])))
+            }
+        }
+        // 按 allKnownSections 顺序排序，未知 section 排在末尾
+        sections.sort { a, b in
+            let ai = allKnownSections.firstIndex(of: a.key) ?? Int.max
+            let bi = allKnownSections.firstIndex(of: b.key) ?? Int.max
+            if ai != bi { return ai < bi }
+            return a.key < b.key
         }
 
         if selectedSection == nil, let first = sections.first {
@@ -157,6 +181,8 @@ class ConfigEditorViewModel: ObservableObject {
     func save() {
         var dict = [String: Any]()
         for (k, v) in sections {
+            // 跳过空 section，不写入 JSON
+            if case .object(let pairs) = v, pairs.isEmpty { continue }
             dict[k] = toJSON(v)
         }
 
@@ -489,22 +515,28 @@ struct ConfigEditorView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 2) {
                         ForEach(vm.sections, id: \.key) { section in
+                            let sectionEmpty: Bool = {
+                                if case .object(let pairs) = section.value { return pairs.isEmpty }
+                                return false
+                            }()
+                            let isSelected = vm.selectedSection == section.key
+
                             Button(action: { vm.selectedSection = section.key }) {
                                 HStack(spacing: 8) {
                                     Image(systemName: sectionIcons[section.key] ?? "doc.text")
                                         .font(.system(size: 12))
-                                        .foregroundColor(vm.selectedSection == section.key ? .accentColor : .white.opacity(0.4))
+                                        .foregroundColor(isSelected ? .accentColor : .white.opacity(sectionEmpty ? 0.2 : 0.4))
                                         .frame(width: 18)
                                     Text(section.key)
-                                        .font(.system(size: 13, weight: vm.selectedSection == section.key ? .semibold : .regular))
-                                        .foregroundColor(vm.selectedSection == section.key ? .white : .white.opacity(0.7))
+                                        .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                                        .foregroundColor(isSelected ? .white : .white.opacity(sectionEmpty ? 0.35 : 0.7))
                                     Spacer()
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
                                 .background(
                                     RoundedRectangle(cornerRadius: 6)
-                                        .fill(vm.selectedSection == section.key ? Color.accentColor.opacity(0.15) : Color.clear)
+                                        .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -637,6 +669,8 @@ struct ConfigEditorView: View {
             AgentsSectionEditor(vm: vm)
         case "session":
             SessionSectionEditor(vm: vm)
+        case "models":
+            ModelsSectionEditor(vm: vm)
         case "plugins":
             PluginsSectionEditor(vm: vm)
         case "tools":

@@ -68,172 +68,28 @@ private struct CommandLogView: View {
 
 struct GatewaySectionEditor: View {
     @ObservedObject var vm: ConfigEditorViewModel
-    @State private var showToken = false
 
-    private var bindValue: String {
-        vm.extractString(section: "gateway", path: ["bind"])
-    }
-    private var authMode: String {
-        vm.extractString(section: "gateway", path: ["auth", "mode"], defaultValue: "token")
-    }
     private var tailscaleMode: String {
         vm.extractString(section: "gateway", path: ["tailscale", "mode"], defaultValue: "off")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Bind mode
-            ConfigRadioGroup(
-                label: "绑定地址",
-                options: GatewayBindMode.allCases.map { mode in
-                    (value: mode.rawValue, title: mode.title, subtitle: mode.subtitle)
-                },
-                selection: vm.stringBinding(section: "gateway", path: ["bind"], defaultValue: "loopback")
+            GatewayConfigContent(
+                bindMode: vm.stringBinding(section: "gateway", path: ["bind"], defaultValue: "loopback"),
+                customBindHost: vm.stringBinding(section: "gateway", path: ["customBindHost"]),
+                port: vm.numberStringBinding(section: "gateway", path: ["port"]),
+                authMode: vm.stringBinding(section: "gateway", path: ["auth", "mode"], defaultValue: "token"),
+                token: vm.stringBinding(section: "gateway", path: ["auth", "token"]),
+                password: vm.stringBinding(section: "gateway", path: ["auth", "password"]),
+                tailscaleEnabled: Binding<Bool>(
+                    get: { self.tailscaleMode == "enabled" },
+                    set: { vm.updateValue(sectionKey: "gateway", path: ["tailscale", "mode"], newValue: .string($0 ? "enabled" : "off")) }
+                ),
+                tailscaleResetOnExit: vm.boolBinding(section: "gateway", path: ["tailscale", "resetOnExit"])
             )
 
-            if bindValue == "custom" {
-                VStack(alignment: .leading, spacing: 6) {
-                    ConfigLabel(text: "自定义绑定地址")
-                    ConfigTextField(
-                        placeholder: "192.168.1.100",
-                        text: vm.stringBinding(section: "gateway", path: ["customBindHost"]),
-                        mono: true
-                    )
-                    .frame(width: 200)
-                }
-            }
-
-            // Port
-            VStack(alignment: .leading, spacing: 6) {
-                ConfigLabel(text: "端口")
-                ConfigTextField(
-                    placeholder: "18789",
-                    text: vm.numberStringBinding(section: "gateway", path: ["port"]),
-                    mono: true
-                )
-                .frame(width: 140)
-                Text("默认 ws://127.0.0.1:18789")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.3))
-            }
-
-            // Auth mode
-            ConfigSegment(
-                label: "认证方式",
-                options: GatewayAuthMode.allCases.map { ($0.rawValue, $0.title) },
-                selection: vm.stringBinding(section: "gateway", path: ["auth", "mode"], defaultValue: "token")
-            )
-
-            // Conditional token field
-            if authMode == "token" {
-                VStack(alignment: .leading, spacing: 6) {
-                    ConfigLabel(text: "Gateway Token")
-                    HStack(spacing: 0) {
-                        if showToken {
-                            TextField("", text: vm.stringBinding(section: "gateway", path: ["auth", "token"]))
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.7))
-                        } else {
-                            let tokenLen = vm.extractString(section: "gateway", path: ["auth", "token"]).count
-                            Text(String(repeating: "\u{2022}", count: min(tokenLen, 32)))
-                                .font(.system(size: 14))
-                                .foregroundColor(.white.opacity(0.5))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        Button(action: { showToken.toggle() }) {
-                            Image(systemName: showToken ? "eye.slash" : "eye")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.4))
-                        }
-                        .buttonStyle(.plain)
-                        .help(showToken ? "隐藏" : "显示")
-                        .padding(.trailing, 4)
-                    }
-                    .padding(10)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-            }
-
-            // Conditional password field
-            if authMode == "password" {
-                VStack(alignment: .leading, spacing: 6) {
-                    ConfigLabel(text: "Gateway 密码")
-                    SecureField("", text: vm.stringBinding(section: "gateway", path: ["auth", "password"]))
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(.white)
-                        .darkPlaceholder("设置 Gateway 访问密码", show: vm.extractString(section: "gateway", path: ["auth", "password"]).isEmpty)
-                        .padding(10)
-                        .background(Color.white.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-            }
-
-            // Security hint
-            HStack(spacing: 8) {
-                Image(systemName: "lock.shield")
-                    .font(.system(size: 12))
-                    .foregroundColor(.yellow.opacity(0.7))
-                Text("即使在 loopback 上也建议开启 Token 认证，确保本地 WebSocket 客户端必须认证。")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.4))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.yellow.opacity(0.04))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.yellow.opacity(0.08), lineWidth: 1)
-                    )
-            )
-
-            // Tailscale
-            Divider().background(Color.white.opacity(0.06))
-
-            VStack(alignment: .leading, spacing: 8) {
-                ConfigLabel(text: "Tailscale")
-                ConfigToggleRow(
-                    title: "启用 Tailscale",
-                    subtitle: "通过 Tailscale 网络暴露 Gateway，实现远程安全访问",
-                    isOn: Binding<Bool>(
-                        get: { self.tailscaleMode == "enabled" },
-                        set: { vm.updateValue(sectionKey: "gateway", path: ["tailscale", "mode"], newValue: .string($0 ? "enabled" : "off")) }
-                    )
-                )
-
-                if tailscaleMode == "enabled" {
-                    ConfigToggleRow(
-                        title: "退出时重置",
-                        subtitle: "Gateway 停止时自动撤销 Tailscale Serve",
-                        isOn: vm.boolBinding(section: "gateway", path: ["tailscale", "resetOnExit"])
-                    )
-
-                    HStack(spacing: 8) {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 11))
-                            .foregroundColor(.blue.opacity(0.7))
-                        Text("需要在本机已安装并登录 Tailscale。启用后 Gateway 将通过 tailscale serve 暴露。")
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.4))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.blue.opacity(0.04))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.blue.opacity(0.08), lineWidth: 1)
-                            )
-                    )
-                }
-            }
-
-            // Mode (read-only, inferred)
+            // Mode (read-only, inferred) — config editor only
             VStack(alignment: .leading, spacing: 4) {
                 ConfigLabel(text: "运行模式")
                 Text(vm.extractString(section: "gateway", path: ["mode"], defaultValue: "local"))
@@ -477,8 +333,29 @@ private struct ChannelAddBindingPopover: View {
         }
     }
 
+    /// Adds a binding string to the given agent index, creating the default
+    /// "main" agent entry first when `agentIndex == -1` (synthetic default).
+    private func addBinding(_ binding: String, agentIndex: Int) {
+        if agentIndex == -1 {
+            // Create default "main" agent with the binding already attached
+            let agentObj: ConfigValue = .object([
+                (key: "id", value: .string("main")),
+                (key: "bindings", value: .array([.string(binding)]))
+            ])
+            vm.appendArrayItem(sectionKey: "agents", path: ["list"], value: agentObj)
+        } else {
+            vm.appendArrayItem(sectionKey: "agents", path: ["list", "\(agentIndex)", "bindings"], value: .string(binding))
+        }
+    }
+
+    /// When agents.list is empty OpenClaw runs in single-agent mode with a
+    /// default agent called "main". We synthesise that entry so the user can
+    /// still create route bindings without first adding an explicit agent.
     private var agentsList: [(index: Int, id: String)] {
         let agents = vm.extractArray(section: "agents", path: ["list"])
+        if agents.isEmpty {
+            return [(-1, "main")]
+        }
         var result: [(Int, String)] = []
         for (i, agent) in agents.enumerated() {
             if case .object(let pairs) = agent,
@@ -637,7 +514,7 @@ private struct ChannelAddBindingPopover: View {
                         guard let idx = selectedAgentIndex else { return }
                         let b = customBinding.trimmingCharacters(in: .whitespaces)
                         guard !b.isEmpty else { return }
-                        vm.appendArrayItem(sectionKey: "agents", path: ["list", "\(idx)", "bindings"], value: .string(b))
+                        addBinding(b, agentIndex: idx)
                         isPresented = false
                     }
                     .font(.system(size: 11, weight: .medium))
@@ -659,7 +536,7 @@ private struct ChannelAddBindingPopover: View {
                     guard !selectedChannel.isEmpty, let idx = selectedAgentIndex else { return }
                     let acct = accountId.trimmingCharacters(in: .whitespaces)
                     let binding = acct.isEmpty ? selectedChannel : "\(selectedChannel):\(acct)"
-                    vm.appendArrayItem(sectionKey: "agents", path: ["list", "\(idx)", "bindings"], value: .string(binding))
+                    addBinding(binding, agentIndex: idx)
                     isPresented = false
                 }) {
                     Text("确定")
@@ -785,6 +662,15 @@ private struct ConfigChannelCard: View {
         ChannelType(rawValue: channelKey)
     }
 
+    /// Whether a conditional field should be visible based on the current config values.
+    private func configFieldVisible(_ field: ChannelField) -> Bool {
+        if case .conditional(let dependsOn, let showWhen, _) = field.kind {
+            let current = vm.extractString(section: "channels", path: [channelKey, dependsOn])
+            return current == showWhen
+        }
+        return true
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Channel header
@@ -860,11 +746,13 @@ private struct ConfigChannelCard: View {
                     // Known channel fields
                     if let ct = channelType {
                         ForEach(ct.configFields) { field in
-                            ChannelFieldRow(
-                                field: field,
-                                channelKey: channelKey,
-                                vm: vm
-                            )
+                            if configFieldVisible(field) {
+                                ChannelFieldRow(
+                                    field: field,
+                                    channelKey: channelKey,
+                                    vm: vm
+                                )
+                            }
                         }
 
                         if let hint = ct.setupHint {
@@ -930,6 +818,14 @@ private struct ChannelFieldRow: View {
     @ObservedObject var vm: ConfigEditorViewModel
     @State private var showSecure = false
 
+    /// Resolve the effective kind (unwrap conditional).
+    private var effectiveKind: ChannelFieldKind {
+        if case .conditional(_, _, let inner) = field.kind {
+            return inner
+        }
+        return field.kind
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
@@ -943,34 +839,73 @@ private struct ChannelFieldRow: View {
                 }
             }
 
-            HStack(spacing: 6) {
-                if field.sensitive && !showSecure {
-                    SecureField("", text: vm.stringBinding(section: "channels", path: [channelKey, field.id]))
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(.white)
-                        .darkPlaceholder(field.placeholder, show: vm.extractString(section: "channels", path: [channelKey, field.id]).isEmpty)
-                        .padding(8)
-                        .background(Color.white.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                } else {
-                    TextField("", text: vm.stringBinding(section: "channels", path: [channelKey, field.id]))
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(.white)
-                        .darkPlaceholder(field.placeholder, show: vm.extractString(section: "channels", path: [channelKey, field.id]).isEmpty)
-                        .padding(8)
-                        .background(Color.white.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+            switch effectiveKind {
+            case .picker(let options):
+                pickerInput(options: options)
+            default:
+                textInput()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pickerInput(options: [(value: String, label: String)]) -> some View {
+        let binding = vm.stringBinding(section: "channels", path: [channelKey, field.id])
+        HStack(spacing: 6) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                let current = binding.wrappedValue
+                let isSelected = current == option.value ||
+                    (current.isEmpty && option.value == options.first?.value)
+                Button(action: { binding.wrappedValue = option.value }) {
+                    Text(option.label)
+                        .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                        .foregroundColor(isSelected ? .white : .white.opacity(0.4))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(isSelected ? Color.accentColor.opacity(0.3) : Color.white.opacity(0.04))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.white.opacity(0.06), lineWidth: 1)
+                                )
+                        )
                 }
-                if field.sensitive {
-                    Button(action: { showSecure.toggle() }) {
-                        Image(systemName: showSecure ? "eye.slash" : "eye")
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.3))
-                    }
-                    .buttonStyle(.plain)
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func textInput() -> some View {
+        HStack(spacing: 6) {
+            if field.sensitive && !showSecure {
+                SecureField("", text: vm.stringBinding(section: "channels", path: [channelKey, field.id]))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.white)
+                    .darkPlaceholder(field.placeholder, show: vm.extractString(section: "channels", path: [channelKey, field.id]).isEmpty)
+                    .padding(8)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                TextField("", text: vm.stringBinding(section: "channels", path: [channelKey, field.id]))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.white)
+                    .darkPlaceholder(field.placeholder, show: vm.extractString(section: "channels", path: [channelKey, field.id]).isEmpty)
+                    .padding(8)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            if field.sensitive {
+                Button(action: { showSecure.toggle() }) {
+                    Image(systemName: showSecure ? "eye.slash" : "eye")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.3))
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -981,43 +916,11 @@ private struct ChannelFieldRow: View {
 struct WebSectionEditor: View {
     @ObservedObject var vm: ConfigEditorViewModel
 
-    private var currentProvider: String {
-        vm.extractString(section: "web", path: ["search", "provider"])
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            ConfigRadioGroup(
-                label: "搜索服务商",
-                options: [
-                    (value: "", title: "无", subtitle: "不使用网络搜索")
-                ] + WebSearchProvider.all.map { provider in
-                    (value: provider.id, title: provider.title, subtitle: "环境变量: \(provider.envKey)")
-                },
-                selection: vm.stringBinding(section: "web", path: ["search", "provider"])
+            WebSearchConfigContent(
+                provider: vm.stringBinding(section: "web", path: ["search", "provider"])
             )
-
-            if !currentProvider.isEmpty,
-               let provider = WebSearchProvider.all.first(where: { $0.id == currentProvider }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 11))
-                        .foregroundColor(.blue.opacity(0.7))
-                    Text("API Key 通过环境变量 \(provider.envKey) 配置，请在 env section 中设置。")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.4))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.blue.opacity(0.04))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.blue.opacity(0.08), lineWidth: 1)
-                        )
-                )
-            }
 
             // Fallback for unknown keys
             if let val = vm.sectionValue(for: "web") {
@@ -1040,34 +943,12 @@ struct HooksSectionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(BundledHook.all) { hook in
-                HStack(spacing: 10) {
-                    Image(systemName: hook.icon)
-                        .font(.system(size: 13))
-                        .foregroundColor(.accentColor.opacity(0.7))
-                        .frame(width: 20)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(hook.title)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white)
-                        Text(hook.description)
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.4))
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: vm.boolBinding(
-                        section: "hooks",
-                        path: ["internal", "entries", hook.id, "enabled"]
-                    ))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .tint(.accentColor)
-                }
-                .padding(.vertical, 4)
-            }
+            HooksConfigContent(
+                isEnabledBinding: { hookId in
+                    vm.boolBinding(section: "hooks", path: ["internal", "entries", hookId, "enabled"])
+                },
+                cardStyle: false
+            )
 
             // Custom hooks from config
             if let val = vm.sectionValue(for: "hooks"),
@@ -1177,139 +1058,17 @@ struct SkillsSectionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Node manager
-            ConfigSegment(
-                label: "包管理器",
-                options: [("npm", "npm"), ("pnpm", "pnpm"), ("bun", "bun")],
-                selection: vm.stringBinding(section: "skills", path: ["install", "nodeManager"], defaultValue: "npm")
+            SkillsConfigContent(
+                selectedSkills: $selectedBundledSkills,
+                nodeManager: vm.stringBinding(section: "skills", path: ["install", "nodeManager"], defaultValue: "npm"),
+                onInstallDeps: { skills in await installBundledDeps(skills) },
+                installing: $skillsInstalling,
+                installLog: $skillsInstallLog
             )
 
             Divider().background(Color.white.opacity(0.06))
 
-            // Bundled skills list
-            VStack(alignment: .leading, spacing: 4) {
-                Text("内置 Skills")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.5))
-                    .padding(.bottom, 4)
-
-                ForEach(BundledSkill.popular) { skill in
-                    let isSelected = selectedBundledSkills.contains(skill.id)
-                    Button(action: {
-                        if isSelected {
-                            selectedBundledSkills.remove(skill.id)
-                        } else {
-                            selectedBundledSkills.insert(skill.id)
-                        }
-                    }) {
-                        HStack(spacing: 10) {
-                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 14))
-                                .foregroundColor(isSelected ? .accentColor : .white.opacity(0.2))
-
-                            Text(skill.emoji)
-                                .font(.system(size: 14))
-
-                            VStack(alignment: .leading, spacing: 1) {
-                                HStack(spacing: 6) {
-                                    Text(skill.title)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.white)
-
-                                    if skill.installKind != .none && !skill.installLabel.isEmpty {
-                                        Text(skill.installKind.rawValue)
-                                            .font(.system(size: 9, weight: .semibold))
-                                            .foregroundColor(.white.opacity(0.4))
-                                            .padding(.horizontal, 5)
-                                            .padding(.vertical, 1)
-                                            .background(Color.white.opacity(0.08))
-                                            .clipShape(RoundedRectangle(cornerRadius: 3))
-                                    }
-
-                                    if skill.primaryEnv != nil {
-                                        Text("API Key")
-                                            .font(.system(size: 9, weight: .semibold))
-                                            .foregroundColor(.orange.opacity(0.7))
-                                            .padding(.horizontal, 5)
-                                            .padding(.vertical, 1)
-                                            .background(Color.orange.opacity(0.1))
-                                            .clipShape(RoundedRectangle(cornerRadius: 3))
-                                    }
-                                }
-                                Text(skill.description)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.35))
-                            }
-
-                            Spacer()
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            // Install dependencies button for selected bundled skills
-            let installableSkills = BundledSkill.popular.filter { selectedBundledSkills.contains($0.id) && $0.installKind != .none && !$0.installLabel.isEmpty }
-            if !installableSkills.isEmpty {
-                Button(action: {
-                    Task { await installBundledDeps(installableSkills) }
-                }) {
-                    HStack(spacing: 6) {
-                        if skillsInstalling {
-                            ProgressView()
-                                .scaleEffect(0.6)
-                                .progressViewStyle(.circular)
-                        } else {
-                            Image(systemName: "arrow.down.circle")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        Text(skillsInstalling ? "安装中..." : "安装依赖 (\(installableSkills.count) 项)")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    .foregroundColor(.white)
-                    .frame(height: 36)
-                    .padding(.horizontal, 16)
-                    .background(Color.accentColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .disabled(skillsInstalling)
-            }
-
-            // Install log for bundled skills
-            if !skillsInstallLog.isEmpty {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(skillsInstallLog.enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(
-                                    line.hasPrefix("==>") ? .accentColor :
-                                    line.hasPrefix("✓") ? .green :
-                                    line.hasPrefix("✗") ? .red :
-                                    .white.opacity(0.5)
-                                )
-                                .textSelection(.enabled)
-                        }
-                    }
-                    .padding(8)
-                }
-                .frame(maxHeight: 100)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.black.opacity(0.3))
-                )
-            }
-
-            Divider().background(Color.white.opacity(0.06))
-
-            // ClawHub browser section
+            // ClawHub browser section — config editor only
             VStack(alignment: .leading, spacing: 8) {
                 Button(action: { withAnimation { showWebBrowser.toggle() } }) {
                     HStack(spacing: 6) {
@@ -1338,7 +1097,7 @@ struct SkillsSectionEditor: View {
                 }
             }
 
-            // Install skill by name
+            // Install skill by name — config editor only
             VStack(alignment: .leading, spacing: 8) {
                 ConfigLabel(text: "安装技能")
                 HStack(spacing: 8) {
@@ -1520,6 +1279,8 @@ struct AgentsSectionEditor: View {
                                                 ForEach(provider.models, id: \.self) { model in
                                                     Button(model) {
                                                         vm.updateValue(sectionKey: "agents", path: ["defaults", "model", "primary"], newValue: .string(model))
+                                                        // 同时注册到 models 映射表
+                                                        vm.addObjectEntry(sectionKey: "agents", path: ["defaults", "models"], key: model, value: .object([]))
                                                     }
                                                 }
                                             }
@@ -1582,9 +1343,24 @@ struct AgentsSectionEditor: View {
                 }
 
                 if modelKeys.isEmpty {
-                    Text("暂无额外模型配置")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.3))
+                    HStack(spacing: 8) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.3))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("暂无已配置模型")
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.3))
+                            Text("点击上方「选择模型」或右侧「添加」来配置模型，认证可通过 openclaw models auth login 完成")
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.2))
+                        }
+                    }
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.white.opacity(0.03))
+                    )
                 } else {
                     ForEach(modelKeys, id: \.self) { modelKey in
                         HStack(spacing: 8) {
@@ -1631,6 +1407,46 @@ struct AgentsSectionEditor: View {
                                 .fill(modelKey == currentPrimary ? Color.accentColor.opacity(0.05) : Color.clear)
                         )
                     }
+                }
+            }
+
+            // ── Model Auth ──
+            if currentPrimary.isEmpty && modelKeys.isEmpty {
+                Divider().background(Color.white.opacity(0.06))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ConfigLabel(text: "模型认证")
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            Task { await vm.runCLICommand("openclaw models auth login --set-default") }
+                        }) {
+                            HStack(spacing: 6) {
+                                if vm.isRunningCommand {
+                                    ProgressView()
+                                        .scaleEffect(0.5)
+                                        .progressViewStyle(.circular)
+                                } else {
+                                    Image(systemName: "key.fill")
+                                        .font(.system(size: 11))
+                                }
+                                Text("交互式认证配置")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(vm.isRunningCommand)
+
+                        Text("通过 CLI 向导完成服务商认证")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.25))
+                    }
+
+                    CommandLogView(vm: vm)
                 }
             }
 
@@ -2008,92 +1824,32 @@ private struct AddAgentPopover: View {
     @State private var agentWorkspace = "~/.openclaw/workspace-<id>"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("新建 Agent")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
+        AddAgentContent(
+            agentName: $agentName,
+            agentModel: $agentModel,
+            agentWorkspace: $agentWorkspace,
+            onCancel: { isPresented = false },
+            onCreate: {
+                let name = agentName.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Agent ID")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                TextField("", text: $agentName)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(.white)
-                    .darkPlaceholder("my-agent", show: agentName.isEmpty)
-                    .padding(8)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("模型（可选）")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                TextField("", text: $agentModel)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(.white)
-                    .darkPlaceholder("留空则使用全局默认模型", show: agentModel.isEmpty)
-                    .padding(8)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("工作区路径（可选）")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                TextField("", text: $agentWorkspace)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(.white)
-                    .darkPlaceholder("~/.openclaw/workspace-<id>", show: agentWorkspace.isEmpty)
-                    .padding(8)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-
-            HStack {
-                Spacer()
-                Button("取消") { isPresented = false }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.5))
-                    .buttonStyle(.plain)
-
-                Button(action: {
-                    let name = agentName.trimmingCharacters(in: .whitespaces)
-                    guard !name.isEmpty else { return }
-
-                    var pairs: [(key: String, value: ConfigValue)] = [
-                        (key: "id", value: .string(name))
-                    ]
-                    let ws = agentWorkspace.trimmingCharacters(in: .whitespaces)
-                    if !ws.isEmpty {
-                        pairs.append((key: "workspace", value: .string(ws)))
-                    }
-                    let m = agentModel.trimmingCharacters(in: .whitespaces)
-                    if !m.isEmpty {
-                        pairs.append((key: "model", value: .string(m)))
-                    }
-                    pairs.append((key: "bindings", value: .array([])))
-
-                    vm.appendArrayItem(sectionKey: "agents", path: ["list"], value: .object(pairs))
-                    isPresented = false
-                }) {
-                    Text("创建")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(agentName.trimmingCharacters(in: .whitespaces).isEmpty ? Color.accentColor.opacity(0.3) : Color.accentColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                var pairs: [(key: String, value: ConfigValue)] = [
+                    (key: "id", value: .string(name))
+                ]
+                let ws = agentWorkspace.trimmingCharacters(in: .whitespaces)
+                if !ws.isEmpty {
+                    pairs.append((key: "workspace", value: .string(ws)))
                 }
-                .buttonStyle(.plain)
-                .disabled(agentName.trimmingCharacters(in: .whitespaces).isEmpty)
+                let m = agentModel.trimmingCharacters(in: .whitespaces)
+                if !m.isEmpty {
+                    pairs.append((key: "model", value: .string(m)))
+                }
+                pairs.append((key: "bindings", value: .array([])))
+
+                vm.appendArrayItem(sectionKey: "agents", path: ["list"], value: .object(pairs))
+                isPresented = false
             }
-        }
+        )
         .padding(16)
         .frame(width: 340)
         .background(Color(red: 0.1, green: 0.1, blue: 0.16))
@@ -2264,7 +2020,7 @@ private struct AddBindingPopover: View {
 
 // MARK: - Add Model Popover
 
-private struct AddModelPopover: View {
+struct AddModelPopover: View {
     @ObservedObject var vm: ConfigEditorViewModel
     @Binding var isPresented: Bool
     @State private var customModelId = ""
@@ -2343,6 +2099,243 @@ private struct AddModelPopover: View {
         .padding(14)
         .frame(width: 320)
         .background(Color(red: 0.1, green: 0.1, blue: 0.16))
+    }
+}
+
+// MARK: - Models Section Editor
+
+struct ModelsSectionEditor: View {
+    @ObservedObject var vm: ConfigEditorViewModel
+    @State private var showAddModel = false
+
+    private var currentPrimary: String {
+        vm.extractString(section: "agents", path: ["defaults", "model", "primary"])
+    }
+
+    private var modelKeys: [String] {
+        guard let val = vm.sectionValue(for: "agents") else { return [] }
+        if case .object(let topPairs) = val,
+           let defaults = topPairs.first(where: { $0.key == "defaults" }),
+           case .object(let defaultsPairs) = defaults.value,
+           let models = defaultsPairs.first(where: { $0.key == "models" }),
+           case .object(let modelPairs) = models.value {
+            return modelPairs.map(\.key)
+        }
+        return []
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Add model button (consistent with channels)
+            Button(action: { showAddModel = true }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 12))
+                    Text("添加模型")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $showAddModel) {
+                AddModelSheet(vm: vm, isPresented: $showAddModel)
+            }
+
+            if modelKeys.isEmpty {
+                Text("暂无模型配置，点击上方按钮添加")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.3))
+            } else {
+                // Default model
+                VStack(alignment: .leading, spacing: 6) {
+                    ConfigLabel(text: "默认模型")
+                    ConfigTextField(
+                        placeholder: "anthropic/claude-sonnet-4-5-20250514",
+                        text: vm.stringBinding(section: "agents", path: ["defaults", "model", "primary"]),
+                        mono: true
+                    )
+                    Text("可手动输入 provider/model-id 或在下方列表中设为默认")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.25))
+                }
+
+                Divider().background(Color.white.opacity(0.06))
+
+                // Models list
+                VStack(alignment: .leading, spacing: 8) {
+                    ConfigLabel(text: "已配置模型")
+
+                    ForEach(modelKeys, id: \.self) { modelKey in
+                        HStack(spacing: 8) {
+                            Image(systemName: "cpu")
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.4))
+                            Text(modelKey)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+
+                            Spacer()
+
+                            if modelKey == currentPrimary {
+                                Text("默认")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(.accentColor)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.accentColor.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                            } else {
+                                Button("设为默认") {
+                                    vm.updateValue(sectionKey: "agents", path: ["defaults", "model", "primary"], newValue: .string(modelKey))
+                                }
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.4))
+                                .buttonStyle(.plain)
+                            }
+
+                            Button(action: {
+                                vm.deleteKey(sectionKey: "agents", path: ["defaults", "models", modelKey])
+                            }) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.red.opacity(0.6))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(modelKey == currentPrimary ? Color.accentColor.opacity(0.05) : Color.clear)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Add Model Sheet (reuses onboarding flow)
+
+private struct AddModelSheet: View {
+    @ObservedObject var vm: ConfigEditorViewModel
+    @Binding var isPresented: Bool
+    @StateObject private var installerVM = InstallerViewModel()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            switch installerVM.onboardStep {
+            case .providerSelect:
+                ProviderSelectStep()
+                    .environmentObject(installerVM)
+
+            case .modelConfig:
+                ModelConfigStep()
+                    .environmentObject(installerVM)
+
+            default:
+                EmptyView()
+            }
+        }
+        .frame(width: 580, height: 520)
+        .background(Color(red: 0.08, green: 0.08, blue: 0.14))
+        .preferredColorScheme(.dark)
+        .onAppear {
+            installerVM.onboardStep = .providerSelect
+            installerVM.onProviderChanged()
+        }
+        .onChange(of: installerVM.onboardStep) { newStep in
+            // When onboarding advances past modelConfig, apply and close
+            if newStep.rawValue > OnboardStep.modelConfig.rawValue {
+                applyAndClose()
+            }
+        }
+    }
+
+    private func applyAndClose() {
+        let isCustomProvider = installerVM.selectedProvider.id == "custom"
+
+        // Determine the model ID
+        let modelId: String
+        if isCustomProvider {
+            let endpointId = installerVM.customEndpointId.trimmingCharacters(in: .whitespaces)
+            let custom = installerVM.customModelId.trimmingCharacters(in: .whitespaces)
+            modelId = !endpointId.isEmpty && !custom.isEmpty ? "\(endpointId)/\(custom)" : custom
+        } else if installerVM.selectedProvider.needsModelId {
+            let custom = installerVM.customModelId.trimmingCharacters(in: .whitespaces)
+            modelId = custom.isEmpty ? "" : "\(installerVM.selectedProvider.id)/\(custom)"
+        } else {
+            modelId = installerVM.selectedModel.isEmpty
+                ? installerVM.selectedProvider.defaultModel
+                : installerVM.selectedModel
+        }
+
+        guard !modelId.isEmpty else {
+            isPresented = false
+            return
+        }
+
+        // For custom providers, also register models.providers config (matching CLI)
+        if isCustomProvider {
+            let baseUrl = installerVM.customBaseURL.trimmingCharacters(in: .whitespaces)
+            let rawModelId = installerVM.customModelId.trimmingCharacters(in: .whitespaces)
+            let endpointId = installerVM.customEndpointId.trimmingCharacters(in: .whitespaces).isEmpty
+                ? installerVM.deriveEndpointId(from: baseUrl)
+                : installerVM.customEndpointId.trimmingCharacters(in: .whitespaces)
+            let providerApi = installerVM.resolveProviderApi()
+
+            if !baseUrl.isEmpty && !rawModelId.isEmpty {
+                // Build provider entry
+                var providerObj: ConfigValue = .object([
+                    ("baseUrl", .string(baseUrl)),
+                    ("api", .string(providerApi)),
+                    ("models", .array([
+                        .object([
+                            ("id", .string(rawModelId)),
+                            ("name", .string("\(rawModelId) (Custom Provider)")),
+                            ("contextWindow", .number(128000)),
+                            ("maxTokens", .number(4096)),
+                            ("input", .array([.string("text")])),
+                            ("cost", .object([
+                                ("input", .number(0)),
+                                ("output", .number(0)),
+                                ("cacheRead", .number(0)),
+                                ("cacheWrite", .number(0))
+                            ])),
+                            ("reasoning", .bool(false))
+                        ])
+                    ]))
+                ])
+
+                let customApiKey = installerVM.apiKey.trimmingCharacters(in: .whitespaces)
+                if !customApiKey.isEmpty {
+                    if case .object(var pairs) = providerObj {
+                        pairs.insert(("apiKey", .string(customApiKey)), at: 2)
+                        providerObj = .object(pairs)
+                    }
+                }
+
+                vm.addObjectEntry(sectionKey: "models", path: ["providers"], key: endpointId, value: providerObj)
+                vm.updateValue(sectionKey: "models", path: ["mode"], newValue: .string("merge"))
+            }
+
+            // Register model with alias if provided
+            let alias = installerVM.customAlias.trimmingCharacters(in: .whitespaces)
+            if !alias.isEmpty {
+                vm.addObjectEntry(sectionKey: "agents", path: ["defaults", "models"], key: modelId, value: .object([("alias", .string(alias))]))
+            } else {
+                vm.addObjectEntry(sectionKey: "agents", path: ["defaults", "models"], key: modelId, value: .object([]))
+            }
+        } else {
+            // Register model in agents.defaults.models
+            vm.addObjectEntry(sectionKey: "agents", path: ["defaults", "models"], key: modelId, value: .object([]))
+        }
+
+        // Set as default model
+        vm.updateValue(sectionKey: "agents", path: ["defaults", "model", "primary"], newValue: .string(modelId))
+
+        isPresented = false
     }
 }
 
