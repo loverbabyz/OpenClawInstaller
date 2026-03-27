@@ -655,6 +655,9 @@ struct ModelConfigStep: View {
                         VStack(alignment: .leading, spacing: 6) {
                             ConfigLabel(text: "Base URL")
                             ConfigTextField(placeholder: "https://api.example.com/v1", text: $viewModel.customBaseURL, mono: true)
+                                .onChange(of: viewModel.customBaseURL) { _ in
+                                    viewModel.onCustomBaseURLChanged()
+                                }
                         }
                     }
 
@@ -666,13 +669,134 @@ struct ModelConfigStep: View {
                         }
                     }
 
+                    // Custom provider extra fields (matching CLI flow)
+                    if viewModel.selectedProvider.id == "custom" {
+                        // Compatibility picker
+                        VStack(alignment: .leading, spacing: 6) {
+                            ConfigLabel(text: "端点兼容性")
+                            HStack(spacing: 8) {
+                                ForEach(["openai", "anthropic", "unknown"], id: \.self) { compat in
+                                    let label: String = {
+                                        switch compat {
+                                        case "openai": return "OpenAI"
+                                        case "anthropic": return "Anthropic"
+                                        case "unknown": return "自动检测"
+                                        default: return compat
+                                        }
+                                    }()
+                                    let hint: String = {
+                                        switch compat {
+                                        case "openai": return "/chat/completions"
+                                        case "anthropic": return "/messages"
+                                        case "unknown": return "自动探测"
+                                        default: return ""
+                                        }
+                                    }()
+                                    Button(action: { viewModel.customCompatibility = compat }) {
+                                        VStack(spacing: 2) {
+                                            Text(label)
+                                                .font(.system(size: 12, weight: .medium))
+                                            Text(hint)
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.white.opacity(0.35))
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                        .background(viewModel.customCompatibility == compat
+                                            ? Color.accentColor.opacity(0.15)
+                                            : Color.white.opacity(0.06))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(viewModel.customCompatibility == compat
+                                                    ? Color.accentColor.opacity(0.5)
+                                                    : Color.clear, lineWidth: 1)
+                                        )
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundColor(.white)
+                                }
+                            }
+                        }
+
+                        // Endpoint ID
+                        VStack(alignment: .leading, spacing: 6) {
+                            ConfigLabel(text: "端点 ID")
+                            ConfigTextField(placeholder: "custom", text: $viewModel.customEndpointId, mono: true)
+                            Text("用于标识此服务商，自动从 URL 派生")
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.25))
+                        }
+
+                        // Optional alias
+                        VStack(alignment: .leading, spacing: 6) {
+                            ConfigLabel(text: "模型别名（可选）")
+                            ConfigTextField(placeholder: "如 local, my-model", text: $viewModel.customAlias, mono: true)
+                        }
+
+                        // Verification button
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 10) {
+                                Button(action: {
+                                    Task { await viewModel.verifyCustomEndpoint() }
+                                }) {
+                                    HStack(spacing: 6) {
+                                        if viewModel.customVerifyStatus == .verifying {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                                .scaleEffect(0.7)
+                                        } else {
+                                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                                .font(.system(size: 12))
+                                        }
+                                        Text("验证端点")
+                                            .font(.system(size: 12, weight: .medium))
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.accentColor.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.accentColor)
+                                .disabled(viewModel.customBaseURL.trimmingCharacters(in: .whitespaces).isEmpty
+                                    || viewModel.customModelId.trimmingCharacters(in: .whitespaces).isEmpty
+                                    || viewModel.customVerifyStatus == .verifying)
+
+                                switch viewModel.customVerifyStatus {
+                                case .success:
+                                    Label("验证通过", systemImage: "checkmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.green)
+                                case .failed:
+                                    Label(viewModel.customVerifyError ?? "验证失败", systemImage: "xmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.red.opacity(0.8))
+                                default:
+                                    EmptyView()
+                                }
+                            }
+                            Text("可选：发送测试请求验证端点是否可用")
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.25))
+                        }
+                    }
+
                     // Default model selection (for standard providers)
                     if !viewModel.selectedProvider.needsModelId {
+                        let modelList = viewModel.cliModels.isEmpty ? viewModel.selectedProvider.models : viewModel.cliModels
                         VStack(alignment: .leading, spacing: 6) {
-                            ConfigLabel(text: "默认模型")
-                            if !viewModel.selectedProvider.models.isEmpty {
+                            HStack(spacing: 6) {
+                                ConfigLabel(text: "默认模型")
+                                if viewModel.cliModelsLoading {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.6)
+                                }
+                            }
+                            if !modelList.isEmpty {
                                 Menu {
-                                    ForEach(viewModel.selectedProvider.models, id: \.self) { model in
+                                    ForEach(modelList, id: \.self) { model in
                                         Button(action: { viewModel.selectedModel = model }) {
                                             if model == viewModel.selectedModel {
                                                 Label(model, systemImage: "checkmark")
@@ -683,7 +807,7 @@ struct ModelConfigStep: View {
                                     }
                                 } label: {
                                     HStack {
-                                        Text(viewModel.selectedModel.isEmpty ? viewModel.selectedProvider.models.first ?? "" : viewModel.selectedModel)
+                                        Text(viewModel.selectedModel.isEmpty ? modelList.first ?? "" : viewModel.selectedModel)
                                             .font(.system(size: 13, design: .monospaced))
                                             .foregroundColor(.white)
                                         Spacer()
@@ -790,7 +914,6 @@ struct WorkspaceStep: View {
 
 struct GatewayStep: View {
     @EnvironmentObject var viewModel: InstallerViewModel
-    @State private var showToken = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -799,54 +922,14 @@ struct GatewayStep: View {
                     ConfigHeader(title: "Gateway 配置", subtitle: "配置本地 Gateway 绑定地址、端口和认证方式")
                         .padding(.top, 12)
 
-                    // Bind mode
-                    VStack(alignment: .leading, spacing: 8) {
-                        ConfigLabel(text: "绑定地址")
-                        ForEach(GatewayBindMode.allCases, id: \.self) { mode in
-                            Button(action: { viewModel.gatewayBindMode = mode }) {
-                                HStack(spacing: 10) {
-                                    Circle()
-                                        .stroke(viewModel.gatewayBindMode == mode ? Color.accentColor : Color.white.opacity(0.2), lineWidth: 1.5)
-                                        .frame(width: 14, height: 14)
-                                        .overlay(
-                                            Circle()
-                                                .fill(viewModel.gatewayBindMode == mode ? Color.accentColor : Color.clear)
-                                                .frame(width: 7, height: 7)
-                                        )
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(mode.title)
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(.white)
-                                        Text(mode.subtitle)
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.white.opacity(0.35))
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.vertical, 6)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        if viewModel.gatewayBindMode == .custom {
-                            ConfigTextField(placeholder: "192.168.1.100", text: $viewModel.gatewayCustomBindHost, mono: true)
-                                .frame(width: 200)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        ConfigLabel(text: "端口")
-                        ConfigTextField(placeholder: "18789", text: $viewModel.gatewayPort, mono: true)
-                            .frame(width: 140)
-                        Text("默认 ws://127.0.0.1:18789")
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.3))
-                    }
-
-                    ConfigSegment(
-                        label: "认证方式",
-                        options: GatewayAuthMode.allCases.map { ($0.rawValue, $0.title) },
-                        selection: Binding(
+                    GatewayConfigContent(
+                        bindMode: Binding(
+                            get: { viewModel.gatewayBindMode.rawValue },
+                            set: { if let m = GatewayBindMode(rawValue: $0) { viewModel.gatewayBindMode = m } }
+                        ),
+                        customBindHost: $viewModel.gatewayCustomBindHost,
+                        port: $viewModel.gatewayPort,
+                        authMode: Binding(
                             get: { viewModel.gatewayAuthMode.rawValue },
                             set: {
                                 if let mode = GatewayAuthMode(rawValue: $0) {
@@ -856,121 +939,13 @@ struct GatewayStep: View {
                                     }
                                 }
                             }
-                        )
+                        ),
+                        token: $viewModel.gatewayToken,
+                        password: $viewModel.gatewayPassword,
+                        tailscaleEnabled: $viewModel.tailscaleEnabled,
+                        tailscaleResetOnExit: $viewModel.tailscaleResetOnExit,
+                        onGenerateToken: { viewModel.generateGatewayToken() }
                     )
-
-                    if viewModel.gatewayAuthMode == .token {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                ConfigLabel(text: "Gateway Token")
-                                Spacer()
-                                Button(action: { viewModel.generateGatewayToken() }) {
-                                    Text("重新生成")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.accentColor)
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            HStack(spacing: 0) {
-                                if showToken {
-                                    TextField("", text: $viewModel.gatewayToken)
-                                        .textFieldStyle(.plain)
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .foregroundColor(.white.opacity(0.7))
-                                } else {
-                                    Text(String(repeating: "\u{2022}", count: min(viewModel.gatewayToken.count, 32)))
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.white.opacity(0.5))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-
-                                Button(action: { showToken.toggle() }) {
-                                    Image(systemName: showToken ? "eye.slash" : "eye")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.white.opacity(0.4))
-                                }
-                                .buttonStyle(.plain)
-                                .help(showToken ? "隐藏" : "显示")
-                                .padding(.trailing, 4)
-                            }
-                            .padding(10)
-                            .background(Color.white.opacity(0.06))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                    }
-
-                    if viewModel.gatewayAuthMode == .password {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ConfigLabel(text: "Gateway 密码")
-                            SecureField("", text: $viewModel.gatewayPassword)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(.white)
-                                .darkPlaceholder("设置 Gateway 访问密码", show: viewModel.gatewayPassword.isEmpty)
-                                .padding(10)
-                                .background(Color.white.opacity(0.06))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                    }
-
-                    HStack(spacing: 8) {
-                        Image(systemName: "lock.shield")
-                            .font(.system(size: 12))
-                            .foregroundColor(.yellow.opacity(0.7))
-                        Text("即使在 loopback 上也建议开启 Token 认证，确保本地 WebSocket 客户端必须认证。")
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.4))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.yellow.opacity(0.04))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.yellow.opacity(0.08), lineWidth: 1)
-                            )
-                    )
-
-                    // Tailscale (matching CLI gateway config)
-                    Divider().background(Color.white.opacity(0.06))
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        ConfigLabel(text: "Tailscale")
-                        ConfigToggleRow(
-                            title: "启用 Tailscale",
-                            subtitle: "通过 Tailscale 网络暴露 Gateway，实现远程安全访问",
-                            isOn: $viewModel.tailscaleEnabled
-                        )
-
-                        if viewModel.tailscaleEnabled {
-                            ConfigToggleRow(
-                                title: "退出时重置",
-                                subtitle: "Gateway 停止时自动撤销 Tailscale Serve",
-                                isOn: $viewModel.tailscaleResetOnExit
-                            )
-
-                            HStack(spacing: 8) {
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.blue.opacity(0.7))
-                                Text("需要在本机已安装并登录 Tailscale。启用后 Gateway 将通过 tailscale serve 暴露。")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.4))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.blue.opacity(0.04))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color.blue.opacity(0.08), lineWidth: 1)
-                                    )
-                            )
-                        }
-                    }
                 }
                 .padding(.horizontal, 24)
             }
@@ -1089,6 +1064,29 @@ struct ChannelConfigCard: View {
     let channel: ChannelType
     @State private var visibleFields: Set<String> = []
 
+    /// Current value of a credential field for this channel.
+    private func fieldValue(_ fieldId: String) -> String {
+        viewModel.channelCredentials[channel.rawValue]?[fieldId] ?? ""
+    }
+
+    /// Whether a field should be visible based on its kind.
+    private func isFieldVisible(_ field: ChannelField) -> Bool {
+        switch field.kind {
+        case .conditional(let dependsOn, let showWhen, _):
+            return fieldValue(dependsOn) == showWhen
+        default:
+            return true
+        }
+    }
+
+    /// Resolve the effective kind (unwrap conditional).
+    private func effectiveKind(_ field: ChannelField) -> ChannelFieldKind {
+        if case .conditional(_, _, let inner) = field.kind {
+            return inner
+        }
+        return field.kind
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Header
@@ -1119,67 +1117,8 @@ struct ChannelConfigCard: View {
                 }
             } else {
                 ForEach(fields) { field in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 4) {
-                            Text(field.label)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
-                            if !field.hint.isEmpty {
-                                Text("— \(field.hint)")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.white.opacity(0.3))
-                            }
-                        }
-
-                        if field.sensitive && !visibleFields.contains(field.id) {
-                            HStack(spacing: 6) {
-                                SecureField("", text: viewModel.channelCredentialBinding(channel: channel, field: field.id))
-                                    .textFieldStyle(.plain)
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(.white)
-                                    .darkPlaceholder(field.placeholder.isEmpty ? field.label : field.placeholder,
-                                                     show: (viewModel.channelCredentials[channel.rawValue]?[field.id] ?? "").isEmpty)
-                                    .padding(8)
-                                    .background(Color.white.opacity(0.06))
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                                Button(action: { visibleFields.insert(field.id) }) {
-                                    Image(systemName: "eye")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.white.opacity(0.3))
-                                        .frame(width: 28, height: 28)
-                                        .background(Color.white.opacity(0.06))
-                                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                                }
-                                .buttonStyle(.plain)
-                                .help("显示")
-                            }
-                        } else {
-                            HStack(spacing: 6) {
-                                TextField("", text: viewModel.channelCredentialBinding(channel: channel, field: field.id))
-                                    .textFieldStyle(.plain)
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(.white)
-                                    .darkPlaceholder(field.placeholder.isEmpty ? field.label : field.placeholder,
-                                                     show: (viewModel.channelCredentials[channel.rawValue]?[field.id] ?? "").isEmpty)
-                                    .padding(8)
-                                    .background(Color.white.opacity(0.06))
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                                if field.sensitive {
-                                    Button(action: { visibleFields.remove(field.id) }) {
-                                        Image(systemName: "eye.slash")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.white.opacity(0.3))
-                                            .frame(width: 28, height: 28)
-                                            .background(Color.white.opacity(0.06))
-                                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("隐藏")
-                                }
-                            }
-                        }
+                    if isFieldVisible(field) {
+                        channelFieldView(field)
                     }
                 }
             }
@@ -1194,13 +1133,120 @@ struct ChannelConfigCard: View {
                 )
         )
     }
+
+    @ViewBuilder
+    private func channelFieldView(_ field: ChannelField) -> some View {
+        let kind = effectiveKind(field)
+
+        VStack(alignment: .leading, spacing: 4) {
+            // Label row
+            HStack(spacing: 4) {
+                Text(field.label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+                if !field.hint.isEmpty {
+                    Text("— \(field.hint)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.3))
+                }
+            }
+
+            // Input
+            switch kind {
+            case .picker(let options):
+                pickerField(field: field, options: options)
+            default:
+                textOrSecureField(field: field)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pickerField(field: ChannelField, options: [(value: String, label: String)]) -> some View {
+        let binding = viewModel.channelCredentialBinding(channel: channel, field: field.id)
+        HStack(spacing: 6) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                let isSelected = binding.wrappedValue == option.value ||
+                    (binding.wrappedValue.isEmpty && option == options.first!)
+                Button(action: { binding.wrappedValue = option.value }) {
+                    Text(option.label)
+                        .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                        .foregroundColor(isSelected ? .white : .white.opacity(0.4))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(isSelected ? Color.accentColor.opacity(0.3) : Color.white.opacity(0.04))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.white.opacity(0.06), lineWidth: 1)
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func textOrSecureField(field: ChannelField) -> some View {
+        if field.sensitive && !visibleFields.contains(field.id) {
+            HStack(spacing: 6) {
+                SecureField("", text: viewModel.channelCredentialBinding(channel: channel, field: field.id))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.white)
+                    .darkPlaceholder(field.placeholder.isEmpty ? field.label : field.placeholder,
+                                     show: fieldValue(field.id).isEmpty)
+                    .padding(8)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                Button(action: { visibleFields.insert(field.id) }) {
+                    Image(systemName: "eye")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.3))
+                        .frame(width: 28, height: 28)
+                        .background(Color.white.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help("显示")
+            }
+        } else {
+            HStack(spacing: 6) {
+                TextField("", text: viewModel.channelCredentialBinding(channel: channel, field: field.id))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.white)
+                    .darkPlaceholder(field.placeholder.isEmpty ? field.label : field.placeholder,
+                                     show: fieldValue(field.id).isEmpty)
+                    .padding(8)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                if field.sensitive {
+                    Button(action: { visibleFields.remove(field.id) }) {
+                        Image(systemName: "eye.slash")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.3))
+                            .frame(width: 28, height: 28)
+                            .background(Color.white.opacity(0.06))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .help("隐藏")
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Step 6: Web Search
 
 struct WebSearchStep: View {
     @EnvironmentObject var viewModel: InstallerViewModel
-    @State private var showKey = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1209,112 +1255,10 @@ struct WebSearchStep: View {
                     ConfigHeader(title: "网络搜索", subtitle: "配置 Web Search 让 Agent 可以搜索互联网（可选）")
                         .padding(.top, 12)
 
-                    // None option
-                    Button(action: { viewModel.selectedWebSearchProvider = "" }) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "xmark.circle")
-                                .font(.system(size: 14))
-                                .foregroundColor(viewModel.selectedWebSearchProvider.isEmpty ? .accentColor : .white.opacity(0.3))
-                                .frame(width: 24)
-                            Text("暂不配置")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white)
-                            Spacer()
-                            Circle()
-                                .stroke(viewModel.selectedWebSearchProvider.isEmpty ? Color.accentColor : Color.white.opacity(0.2), lineWidth: 1.5)
-                                .frame(width: 16, height: 16)
-                                .overlay(
-                                    Circle()
-                                        .fill(viewModel.selectedWebSearchProvider.isEmpty ? Color.accentColor : Color.clear)
-                                        .frame(width: 8, height: 8)
-                                )
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.white.opacity(viewModel.selectedWebSearchProvider.isEmpty ? 0.07 : 0.02))
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    // Provider list
-                    ForEach(WebSearchProvider.all) { provider in
-                        Button(action: { viewModel.selectedWebSearchProvider = provider.id }) {
-                            HStack(spacing: 10) {
-                                Image(systemName: provider.icon)
-                                    .font(.system(size: 14))
-                                    .foregroundColor(viewModel.selectedWebSearchProvider == provider.id ? .accentColor : .white.opacity(0.35))
-                                    .frame(width: 24)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(provider.title)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.white)
-                                    Text(provider.envKey)
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundColor(.white.opacity(0.3))
-                                }
-                                Spacer()
-                                Circle()
-                                    .stroke(viewModel.selectedWebSearchProvider == provider.id ? Color.accentColor : Color.white.opacity(0.2), lineWidth: 1.5)
-                                    .frame(width: 16, height: 16)
-                                    .overlay(
-                                        Circle()
-                                            .fill(viewModel.selectedWebSearchProvider == provider.id ? Color.accentColor : Color.clear)
-                                            .frame(width: 8, height: 8)
-                                    )
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.white.opacity(viewModel.selectedWebSearchProvider == provider.id ? 0.07 : 0.02))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(viewModel.selectedWebSearchProvider == provider.id ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    // API Key for selected provider
-                    if !viewModel.selectedWebSearchProvider.isEmpty,
-                       let provider = WebSearchProvider.all.first(where: { $0.id == viewModel.selectedWebSearchProvider }) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ConfigLabel(text: "\(provider.title) API Key")
-                            HStack(spacing: 8) {
-                                Group {
-                                    if showKey {
-                                        TextField("", text: $viewModel.webSearchApiKey)
-                                    } else {
-                                        SecureField("", text: $viewModel.webSearchApiKey)
-                                    }
-                                }
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 13, design: .monospaced))
-                                .foregroundColor(.white)
-                                .darkPlaceholder(provider.placeholder, show: viewModel.webSearchApiKey.isEmpty)
-                                .padding(10)
-                                .background(Color.white.opacity(0.06))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                                Button(action: { showKey.toggle() }) {
-                                    Image(systemName: showKey ? "eye.slash" : "eye")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.white.opacity(0.4))
-                                        .frame(width: 34, height: 34)
-                                        .background(Color.white.opacity(0.06))
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                }
-                                .buttonStyle(.plain)
-                                .help(showKey ? "隐藏" : "显示")
-                            }
-                            Text("API Key 可选 — 也可通过环境变量 \(provider.envKey) 设置")
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.3))
-                        }
-                    }
+                    WebSearchConfigContent(
+                        provider: $viewModel.selectedWebSearchProvider,
+                        apiKeyBinding: $viewModel.webSearchApiKey
+                    )
                 }
                 .padding(.horizontal, 24)
             }
@@ -1347,188 +1291,19 @@ struct SkillsStep: View {
                     )
 
                     if viewModel.enableSkills {
-                        // Node manager
-                        ConfigSegment(
-                            label: "包管理器",
-                            options: [("npm", "npm"), ("pnpm", "pnpm"), ("bun", "bun")],
-                            selection: $viewModel.skillsNodeManager
+                        SkillsConfigContent(
+                            selectedSkills: $viewModel.selectedSkills,
+                            nodeManager: $viewModel.skillsNodeManager,
+                            envVarsBinding: { envKey in
+                                Binding(
+                                    get: { viewModel.skillEnvVars[envKey] ?? "" },
+                                    set: { viewModel.skillEnvVars[envKey] = $0 }
+                                )
+                            },
+                            onInstallDeps: { _ in await viewModel.installSkillDeps() },
+                            installing: $viewModel.skillsInstalling,
+                            installLog: $viewModel.skillsInstallLog
                         )
-
-                        // Skill selection list
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("选择要安装的 Skills")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
-                                .padding(.bottom, 4)
-
-                            ForEach(BundledSkill.popular) { skill in
-                                let isSelected = viewModel.selectedSkills.contains(skill.id)
-                                Button(action: {
-                                    if isSelected {
-                                        viewModel.selectedSkills.remove(skill.id)
-                                    } else {
-                                        viewModel.selectedSkills.insert(skill.id)
-                                    }
-                                }) {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 14))
-                                            .foregroundColor(isSelected ? .accentColor : .white.opacity(0.2))
-
-                                        Text(skill.emoji)
-                                            .font(.system(size: 14))
-
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            HStack(spacing: 6) {
-                                                Text(skill.title)
-                                                    .font(.system(size: 13, weight: .medium))
-                                                    .foregroundColor(.white)
-
-                                                if skill.installKind != .none && !skill.installLabel.isEmpty {
-                                                    Text(skill.installKind.rawValue)
-                                                        .font(.system(size: 9, weight: .semibold))
-                                                        .foregroundColor(.white.opacity(0.4))
-                                                        .padding(.horizontal, 5)
-                                                        .padding(.vertical, 1)
-                                                        .background(Color.white.opacity(0.08))
-                                                        .clipShape(RoundedRectangle(cornerRadius: 3))
-                                                }
-
-                                                if skill.primaryEnv != nil {
-                                                    Text("API Key")
-                                                        .font(.system(size: 9, weight: .semibold))
-                                                        .foregroundColor(.orange.opacity(0.7))
-                                                        .padding(.horizontal, 5)
-                                                        .padding(.vertical, 1)
-                                                        .background(Color.orange.opacity(0.1))
-                                                        .clipShape(RoundedRectangle(cornerRadius: 3))
-                                                }
-                                            }
-                                            Text(skill.description)
-                                                .font(.system(size: 11))
-                                                .foregroundColor(.white.opacity(0.35))
-                                        }
-
-                                        Spacer()
-                                    }
-                                    .padding(.vertical, 8)
-                                    .padding(.horizontal, 10)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-
-                        // Env var configuration for selected skills
-                        let envSkills = BundledSkill.popular.filter { viewModel.selectedSkills.contains($0.id) && $0.primaryEnv != nil }
-                        if !envSkills.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("API Keys 配置")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.5))
-
-                                ForEach(envSkills) { skill in
-                                    if let envKey = skill.primaryEnv {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            HStack(spacing: 4) {
-                                                Text(skill.emoji)
-                                                    .font(.system(size: 11))
-                                                Text("\(skill.title) — \(envKey)")
-                                                    .font(.system(size: 12, weight: .medium))
-                                                    .foregroundColor(.white.opacity(0.6))
-                                            }
-                                            SecureField("", text: Binding(
-                                                get: { viewModel.skillEnvVars[envKey] ?? "" },
-                                                set: { viewModel.skillEnvVars[envKey] = $0 }
-                                            ))
-                                            .textFieldStyle(.plain)
-                                            .font(.system(size: 12, design: .monospaced))
-                                            .foregroundColor(.white)
-                                            .darkPlaceholder("可选，稍后通过 openclaw configure 配置", show: (viewModel.skillEnvVars[envKey] ?? "").isEmpty)
-                                            .padding(8)
-                                            .background(Color.white.opacity(0.06))
-                                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.orange.opacity(0.04))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color.orange.opacity(0.1), lineWidth: 1)
-                                    )
-                            )
-                        }
-
-                        // Install dependencies button
-                        let installableSkills = BundledSkill.popular.filter { viewModel.selectedSkills.contains($0.id) && $0.installKind != .none && !$0.installLabel.isEmpty }
-                        if !installableSkills.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Button(action: {
-                                    Task { await viewModel.installSkillDeps() }
-                                }) {
-                                    HStack(spacing: 6) {
-                                        if viewModel.skillsInstalling {
-                                            ProgressView()
-                                                .scaleEffect(0.6)
-                                                .progressViewStyle(.circular)
-                                        } else {
-                                            Image(systemName: "arrow.down.circle")
-                                                .font(.system(size: 12, weight: .semibold))
-                                        }
-                                        Text(viewModel.skillsInstalling ? "安装中..." : "安装依赖 (\(installableSkills.count) 项)")
-                                            .font(.system(size: 13, weight: .medium))
-                                    }
-                                    .foregroundColor(.white)
-                                    .frame(height: 36)
-                                    .padding(.horizontal, 16)
-                                    .background(Color.accentColor)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(viewModel.skillsInstalling)
-
-                                // Install log
-                                if !viewModel.skillsInstallLog.isEmpty {
-                                    ScrollView {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            ForEach(Array(viewModel.skillsInstallLog.enumerated()), id: \.offset) { _, line in
-                                                Text(line)
-                                                    .font(.system(size: 11, design: .monospaced))
-                                                    .foregroundColor(
-                                                        line.hasPrefix("==>") ? .accentColor :
-                                                        line.hasPrefix("✓") ? .green :
-                                                        line.hasPrefix("✗") ? .red :
-                                                        .white.opacity(0.5)
-                                                    )
-                                                    .textSelection(.enabled)
-                                            }
-                                        }
-                                        .padding(8)
-                                    }
-                                    .frame(maxHeight: 100)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.black.opacity(0.3))
-                                    )
-                                }
-                            }
-                        }
-
-                        HStack(spacing: 8) {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 11))
-                                .foregroundColor(.accentColor.opacity(0.7))
-                            Text("可通过 openclaw plugins install <name> 安装更多 Skills")
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.35))
-                        }
                     }
                 }
                 .padding(.horizontal, 24)
@@ -1556,49 +1331,21 @@ struct HooksStep: View {
                     ConfigHeader(title: "Hooks 配置", subtitle: "Hooks 在 Agent 生命周期事件触发时自动执行脚本")
                         .padding(.top, 12)
 
-                    ForEach(BundledHook.all) { hook in
-                        let isEnabled = viewModel.enabledHooks.contains(hook.id)
-                        Button(action: {
-                            if isEnabled {
-                                viewModel.enabledHooks.remove(hook.id)
-                            } else {
-                                viewModel.enabledHooks.insert(hook.id)
-                            }
-                        }) {
-                            HStack(spacing: 12) {
-                                Image(systemName: hook.icon)
-                                    .font(.system(size: 14))
-                                    .foregroundColor(isEnabled ? .accentColor : .white.opacity(0.3))
-                                    .frame(width: 24)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(hook.title)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.white)
-                                    Text(hook.description)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.white.opacity(0.4))
+                    HooksConfigContent(
+                        isEnabledBinding: { hookId in
+                            Binding(
+                                get: { viewModel.enabledHooks.contains(hookId) },
+                                set: { enabled in
+                                    if enabled {
+                                        viewModel.enabledHooks.insert(hookId)
+                                    } else {
+                                        viewModel.enabledHooks.remove(hookId)
+                                    }
                                 }
-
-                                Spacer()
-
-                                Image(systemName: isEnabled ? "checkmark.square.fill" : "square")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(isEnabled ? .accentColor : .white.opacity(0.25))
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.white.opacity(isEnabled ? 0.06 : 0.02))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(isEnabled ? Color.accentColor.opacity(0.3) : Color.white.opacity(0.05), lineWidth: 1)
-                                    )
                             )
-                        }
-                        .buttonStyle(.plain)
-                    }
+                        },
+                        cardStyle: true
+                    )
 
                     HStack(spacing: 8) {
                         Image(systemName: "info.circle")
@@ -1878,6 +1625,14 @@ struct HatchBotStep: View {
 
                         SummaryRow(label: "服务商", value: viewModel.selectedProvider.title)
                         SummaryRow(label: "模型", value: {
+                            if viewModel.selectedProvider.id == "custom" {
+                                let endpointId = viewModel.customEndpointId.trimmingCharacters(in: .whitespaces)
+                                let modelId = viewModel.customModelId.trimmingCharacters(in: .whitespaces)
+                                if !endpointId.isEmpty && !modelId.isEmpty {
+                                    return "\(endpointId)/\(modelId)"
+                                }
+                                return modelId.isEmpty ? "未设置" : modelId
+                            }
                             if viewModel.selectedProvider.needsModelId {
                                 return viewModel.customModelId.isEmpty ? "未设置" : viewModel.customModelId
                             }
