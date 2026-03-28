@@ -2051,6 +2051,7 @@ class InstallerViewModel: ObservableObject {
             if exitCode == 0 {
                 oauthSuccess = true
                 oauthLog.append("==> 授权成功！")
+                self.fetchCliModels()
             } else {
                 oauthError = "授权失败 (exit \(exitCode))"
                 oauthLog.append("==> 授权失败: exit code \(exitCode)")
