@@ -2011,14 +2011,36 @@ class InstallerViewModel: ObservableObject {
         // Regex to strip ANSI escape sequences (colors, cursor moves, etc.)
         let ansiPattern = try! NSRegularExpression(pattern: "\\x1b\\[[0-9;]*[A-Za-z]|\\x1b\\][^\u{07}]*\u{07}|\\x1b\\[\\?[0-9;]*[hl]")
 
+        // Line buffer to accumulate partial lines (handles char-by-char TTY output from `script`)
+        var lineBuffer = ""
+
         // Use streaming so the user can see real-time output (e.g. browser URL)
         let exitCode = await shell.runStreaming(ttyCmd) { [weak self] chunk in
             // Strip \r, ANSI escapes, and control chars injected by `script`
             var cleaned = chunk.replacingOccurrences(of: "\r", with: "")
             cleaned = ansiPattern.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
-            let lines = cleaned.components(separatedBy: "\n")
+
+            // Append to line buffer
+            lineBuffer += cleaned
+
+            // Split into complete lines (those ending with \n) and remainder
+            let components = lineBuffer.components(separatedBy: "\n")
+
+            // If buffer didn't end with newline, last component is incomplete - keep it for next chunk
+            let completeLines: [String]
+            if lineBuffer.hasSuffix("\n") {
+                completeLines = components
+                lineBuffer = ""
+            } else {
+                completeLines = Array(components.dropLast())
+                lineBuffer = components.last ?? ""
+            }
+
+            // Process complete lines
+            let lines = completeLines
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
+
             guard !lines.isEmpty else { return }
             DispatchQueue.main.async {
                 guard let self else { return }
