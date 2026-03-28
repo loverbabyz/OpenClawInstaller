@@ -843,7 +843,8 @@ struct ModelConfigStep: View {
             WizardNavBar(
                 canGoBack: true,
                 onBack: { viewModel.previousOnboardStep() },
-                onNext: { viewModel.nextOnboardStep() }
+                onNext: { viewModel.nextOnboardStep() },
+                isDisabled: viewModel.oauthInProgress || viewModel.cliModelsLoading
             )
         }
     }
@@ -1679,9 +1680,10 @@ struct HatchBotStep: View {
                                             .textSelection(.enabled)
                                     }
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(10)
                             }
-                            .frame(maxHeight: 140)
+                            .frame(maxWidth: .infinity, maxHeight: 140)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
                                     .fill(Color.black.opacity(0.3))
@@ -1786,6 +1788,7 @@ struct WizardNavBar: View {
     let canGoBack: Bool
     let onBack: () -> Void
     let onNext: () -> Void
+    var isDisabled: Bool = false
 
     var body: some View {
         HStack {
@@ -1797,13 +1800,14 @@ struct WizardNavBar: View {
                         Text("上一步")
                             .font(.system(size: 13, weight: .medium))
                     }
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(isDisabled ? .white.opacity(0.3) : .white.opacity(0.6))
                     .frame(height: 38)
                     .padding(.horizontal, 16)
-                    .background(Color.white.opacity(0.06))
+                    .background(Color.white.opacity(isDisabled ? 0.02 : 0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .disabled(isDisabled)
             }
 
             Spacer()
@@ -1815,13 +1819,14 @@ struct WizardNavBar: View {
                     Image(systemName: "arrow.right")
                         .font(.system(size: 11, weight: .semibold))
                 }
-                .foregroundColor(.white)
+                .foregroundColor(isDisabled ? .white.opacity(0.3) : .white)
                 .frame(height: 38)
                 .padding(.horizontal, 20)
-                .background(Color.accentColor)
+                .background(isDisabled ? Color.accentColor.opacity(0.5) : Color.accentColor)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+            .disabled(isDisabled)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 14)
