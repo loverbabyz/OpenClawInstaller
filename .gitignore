@@ -20,3 +20,6 @@ Package.resolved
 
 # Claude
 .claude/
+
+# Agent instructions (local developer notes, not for version control)
+AGENTS.md
